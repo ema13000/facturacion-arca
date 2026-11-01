@@ -31,6 +31,9 @@ dependencies {
 	implementation 'com.github.librepdf:openpdf:2.0.3'
 	implementation 'org.apache.poi:poi-ooxml:5.5.1'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+	// Firma digital para la autenticación con ARCA
+	implementation 'org.bouncycastle:bcpkix-jdk18on:1.78'
+	implementation 'org.bouncycastle:bcprov-jdk18on:1.78'
 }
 
 tasks.named('test') {
