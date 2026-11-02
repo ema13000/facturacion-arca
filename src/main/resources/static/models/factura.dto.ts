@@ -56,3 +56,13 @@ export interface PrecioArticuloExplorerDTO {
     listaPrecioDenominacion: string;
     precioVenta: number;
 }
+
+export interface AutorizacionFacturaC {
+    numeroComprobante: number;
+    resultado: {
+        resultado: string;
+        cae: string | null;
+        fechaVencimiento: string | null;
+        observaciones: string[];
+    };
+}

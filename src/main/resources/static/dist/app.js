@@ -274,6 +274,32 @@ async function editarFactura(id) {
     elemento('btnGuardarFactura').textContent =
         `Guardar cambios de factura ${factura.numeroFactura}`;
 }
+async function obtenerDocumentoArca(clienteId) {
+    if (clienteId === null) {
+        return {
+            tipoDocumento: 99,
+            numeroDocumento: 0
+        };
+    }
+    const clientes = await api.obtenerClientes();
+    const cliente = clientes.find(c => c.id === clienteId);
+    if (!cliente) {
+        throw new Error('No se encontró el cliente seleccionado.');
+    }
+    const tipoDocumento = numeroCampo('inputTipoDocumentoArca');
+    if (tipoDocumento !== 80 && tipoDocumento !== 86) {
+        throw new Error('Seleccioná CUIT o CUIL para el cliente.');
+    }
+    const documento = cliente.cuitCuil.trim()
+        .replace(/[-\s]/g, '');
+    if (!/^\d{11}$/.test(documento)) {
+        throw new Error('El CUIT/CUIL del cliente debe tener 11 dígitos.');
+    }
+    return {
+        tipoDocumento,
+        numeroDocumento: Number(documento)
+    };
+}
 async function guardarFactura() {
     for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) {
         const select = elemento(id);
@@ -306,10 +332,38 @@ async function guardarFactura() {
         detalles: renglones
     };
     if (facturaEnEdicionId === null) {
+        const documento = await obtenerDocumentoArca(clienteId);
         configurarOperacion(numeroCampo('inputNumero'));
         const creada = await api.crearFactura(dto);
-        alert(`Factura ${creada.numeroFactura} creada. ` +
-            `Total: $${creada.importeTotal.toFixed(2)}`);
+        try {
+            const autorizacion = await api.autorizarFactura(creada.id, documento.tipoDocumento, documento.numeroDocumento);
+            const resultado = autorizacion.resultado;
+            if (resultado.resultado === 'A') {
+                alert([
+                    `Factura ${autorizacion.numeroComprobante} autorizada en homologación.`,
+                    `Total: $${creada.importeTotal.toFixed(2)}`,
+                    `CAE: ${resultado.cae}`,
+                    `Vencimiento: ${resultado.fechaVencimiento}`,
+                    ...resultado.observaciones
+                ].join('\n'));
+            }
+            else {
+                alert([
+                    `La factura se guardó con ID ${creada.id}, pero ARCA la rechazó.`,
+                    'Quedó pendiente de autorización.',
+                    ...resultado.observaciones
+                ].join('\n'));
+            }
+        }
+        catch (error) {
+            const mensaje = error instanceof Error
+                ? error.message
+                : String(error);
+            alert(`La factura se guardó con ID ${creada.id}, ` +
+                `pero no se pudo confirmar su autorización en ARCA.\n` +
+                `${mensaje}\n` +
+                'No vuelvas a crearla: primero revisaremos el resultado.');
+        }
     }
     else {
         configurarOperacion();
@@ -438,7 +492,19 @@ document.addEventListener('DOMContentLoaded', () => {
     elemento('formAltaFactura')
         .addEventListener('submit', evento => {
         evento.preventDefault();
-        void ejecutar(guardarFactura);
+        const boton = elemento('btnGuardarFactura');
+        if (boton.disabled) {
+            return;
+        }
+        boton.disabled = true;
+        void ejecutar(async () => {
+            try {
+                await guardarFactura();
+            }
+            finally {
+                boton.disabled = false;
+            }
+        });
     });
     void ejecutar(cargarListado);
 });

@@ -5,7 +5,8 @@ import type {
     FacturaEdicionDTO,
     OpcionDTO,
     ClienteExplorerDTO,
-    PrecioArticuloExplorerDTO
+    PrecioArticuloExplorerDTO,
+    AutorizacionFacturaC
 } from '../models/factura.dto.js';
 
 export class FacturaService {
@@ -195,5 +196,30 @@ export class FacturaService {
                 `La API respondió ${response.status}: ${await response.text()}`
             );
         }
+    }
+
+    async autorizarFactura(
+        id: number,
+        tipoDocumento: number,
+        numeroDocumento: number
+    ): Promise<AutorizacionFacturaC> {
+
+        const response = await fetch(
+            `${this.baseUrl}/${id}/autorizar-arca`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    tipoDocumento,
+                    numeroDocumento
+                })
+            }
+        );
+
+        await this.comprobarRespuesta(response);
+
+        return await response.json();
     }
 }

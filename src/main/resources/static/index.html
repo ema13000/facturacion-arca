@@ -136,6 +136,29 @@
                             <button type="button" id="btnQuitarCliente" class="btn-secundario">Consumidor final</button>
                         </div>
                     </div>
+
+                    <div class="campo">
+                        <label for="inputTipoDocumentoArca">
+                            Tipo de documento del cliente
+                        </label>
+
+                        <select id="inputTipoDocumentoArca">
+                            <option value="80">CUIT</option>
+                            <option value="86">CUIL</option>
+                        </select>
+
+                        <small>
+                            Si no seleccionás un cliente, se usará consumidor final
+                            sin identificar.
+                        </small>
+                    </div>
+
+                    <div class="campo">
+                        <label for="inputCondicionIva">Condición de IVA</label>
+                        <select id="inputCondicionIva" required disabled>
+                            <option value="">Cargando condiciones de IVA...</option>
+                        </select>
+                    </div>
                     <div class="campo">
                         <label for="inputCondicionIva">Condición de IVA</label>
                         <select id="inputCondicionIva" required disabled>

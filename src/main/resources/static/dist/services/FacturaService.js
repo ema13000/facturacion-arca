@@ -125,4 +125,18 @@ export class FacturaService {
             throw new Error(`La API respondió ${response.status}: ${await response.text()}`);
         }
     }
+    async autorizarFactura(id, tipoDocumento, numeroDocumento) {
+        const response = await fetch(`${this.baseUrl}/${id}/autorizar-arca`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                tipoDocumento,
+                numeroDocumento
+            })
+        });
+        await this.comprobarRespuesta(response);
+        return await response.json();
+    }
 }
