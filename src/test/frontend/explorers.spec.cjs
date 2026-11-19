@@ -26,7 +26,8 @@ const coincide = (texto, valores) => valores.join(' ').toLowerCase().includes((t
 
 test.beforeAll(async () => {
     server = http.createServer((req, res) => {
-        const file = path.resolve(root, '.' + (req.url === '/' ? '/index.html' : req.url));
+        const ruta = req.url.split('?')[0];
+        const file = path.resolve(root, '.' + (ruta === '/' ? '/index.html' : ruta));
         if (!file.startsWith(root + path.sep)) { res.writeHead(403).end(); return; }
         fs.readFile(file, (error, data) => {
             if (error) { res.writeHead(404).end(); return; }

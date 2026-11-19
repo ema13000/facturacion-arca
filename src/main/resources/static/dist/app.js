@@ -52,7 +52,7 @@ const ICONOS = {
 function botonIcono(texto, icono, clase, accion, descripcion = texto) {
     const boton = crearBoton('', `btn-icono ${clase}`, accion);
     boton.title = descripcion;
-    boton.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONOS[icono]}</svg>`;
+    boton.innerHTML = `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[icono]}</svg>`;
     const etiqueta = document.createElement('span');
     etiqueta.className = 'sr-only';
     etiqueta.textContent = texto;
