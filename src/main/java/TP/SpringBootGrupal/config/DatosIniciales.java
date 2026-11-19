@@ -26,13 +26,13 @@ public class DatosIniciales implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DatosIniciales.class);
 
-    /** CUIT/CUIL de 11 dígitos y razón social de cada cliente de prueba. */
+    /** CUIT/CUIL de 11 dígitos, razón social, nombre y apellido de cada cliente de prueba. */
     public static final List<String[]> CLIENTES_PRUEBA = List.of(
-            new String[]{"20123456786", "Librería Centro"},
-            new String[]{"27234567891", "Escuela Norte"},
-            new String[]{"30712345674", "Distribuidora del Sur S.A."},
-            new String[]{"20345678905", "Kiosco La Esquina"},
-            new String[]{"33698765439", "Papelera Mendoza S.R.L."}
+            new String[]{"20123456786", "Librería Centro", "Juan", "Pérez"},
+            new String[]{"27234567891", "Escuela Norte", "María", "González"},
+            new String[]{"30712345674", "Distribuidora del Sur S.A.", "Carlos", "Rodríguez"},
+            new String[]{"20345678905", "Kiosco La Esquina", "Lucas", "Fernández"},
+            new String[]{"33698765439", "Papelera Mendoza S.R.L.", "Ana", "Martínez"}
     );
 
     private final ClienteRepository clienteRepository;
@@ -56,6 +56,7 @@ public class DatosIniciales implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         if (clienteRepository.count() > 0) {
+            completarNombresFaltantes();
             return;
         }
 
@@ -83,6 +84,8 @@ public class DatosIniciales implements CommandLineRunner {
             Cliente cliente = new Cliente();
             cliente.setCuitCuil(datos[0]);
             cliente.setDenominacion(datos[1]);
+            cliente.setNombre(datos[2]);
+            cliente.setApellido(datos[3]);
             cliente.setContacto(contacto);
             cliente.setDomicilio(domicilio);
             cliente.setFechaAlta(ahora);
@@ -94,5 +97,18 @@ public class DatosIniciales implements CommandLineRunner {
         }
 
         log.info("Se cargaron {} clientes de prueba", CLIENTES_PRUEBA.size());
+    }
+
+    /** Los clientes de prueba cargados antes de existir nombre/apellido se completan una sola vez. */
+    private void completarNombresFaltantes() {
+        for (String[] datos : CLIENTES_PRUEBA) {
+            clienteRepository.findFirstByCuitCuil(datos[0])
+                    .filter(cliente -> cliente.getNombre() == null || cliente.getNombre().isBlank())
+                    .ifPresent(cliente -> {
+                        cliente.setNombre(datos[2]);
+                        cliente.setApellido(datos[3]);
+                        clienteRepository.save(cliente);
+                    });
+        }
     }
 }

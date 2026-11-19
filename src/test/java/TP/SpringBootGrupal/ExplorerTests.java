@@ -133,6 +133,8 @@ class ExplorerTests {
         activo.setId(7L);
         activo.setDenominacion("Librería");
         activo.setCuitCuil("20123456789");
+        activo.setNombre("Juan");
+        activo.setApellido("Pérez");
         Cliente baja = new Cliente();
         baja.setFechaBaja(new Date());
         when(clientes.buscar(eq("lib"), eq(PageRequest.of(0, CatalogoService.LIMITE_RESULTADOS))))
@@ -142,6 +144,8 @@ class ExplorerTests {
         assertEquals(7L, resultado.get(0).id());
         assertEquals("Librería", resultado.get(0).denominacion());
         assertEquals("20123456789", resultado.get(0).cuitCuil());
+        assertEquals("Juan", resultado.get(0).nombre());
+        assertEquals("Pérez", resultado.get(0).apellido());
         verify(clientes, never()).findAll();
     }
 
@@ -228,6 +232,41 @@ class ExplorerTests {
         new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
         verify(clientes, times(existentes == 0 ? DatosIniciales.CLIENTES_PRUEBA.size() : 0))
                 .save(any(Cliente.class));
+    }
+
+    @Test
+    void losClientesDePruebaTienenNombreYApellido() {
+        when(clientes.count()).thenReturn(0L);
+        when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
+        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        var captor = org.mockito.ArgumentCaptor.forClass(Cliente.class);
+        verify(clientes, atLeastOnce()).save(captor.capture());
+        for (Cliente cliente : captor.getAllValues()) {
+            assertFalse(cliente.getNombre() == null || cliente.getNombre().isBlank());
+            assertFalse(cliente.getApellido() == null || cliente.getApellido().isBlank());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void completaNombreYApellidoDeClientesDePruebaYaCargados(boolean yaTieneNombre) {
+        Cliente existente = new Cliente();
+        existente.setCuitCuil("20123456786");
+        if (yaTieneNombre) {
+            existente.setNombre("Otro");
+            existente.setApellido("Nombre");
+        }
+        when(clientes.count()).thenReturn(5L);
+        when(clientes.findFirstByCuitCuil("20123456786")).thenReturn(Optional.of(existente));
+        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        if (yaTieneNombre) {
+            verify(clientes, never()).save(any(Cliente.class));
+            assertEquals("Otro", existente.getNombre());
+        } else {
+            verify(clientes).save(existente);
+            assertEquals("Juan", existente.getNombre());
+            assertEquals("Pérez", existente.getApellido());
+        }
     }
 
     @Test

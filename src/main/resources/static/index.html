@@ -6,7 +6,7 @@
     <title>Sistema de Facturación</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <link rel="stylesheet" href="./style.css?v=4">
+    <link rel="stylesheet" href="./style.css?v=5">
 </head>
 <body>
 
@@ -207,9 +207,15 @@
                         <label for="clienteDescripcion">Cliente seleccionado</label>
                         <input type="hidden" id="inputCliente">
                         <div class="selector-cliente">
-                            <input type="text" id="clienteDescripcion" value="Consumidor final" readonly>
+                            <div class="tarjeta-cliente">
+                                <span class="avatar-cliente" id="avatarCliente" aria-hidden="true">CF</span>
+                                <div class="tarjeta-cliente-datos">
+                                    <input type="text" id="clienteDescripcion" value="Consumidor final" readonly>
+                                    <small id="clienteDetalle">Sin identificar</small>
+                                </div>
+                            </div>
                             <button type="button" id="btnBuscarCliente" class="btn-primario">Buscar cliente</button>
-                            <button type="button" id="btnQuitarCliente" class="btn-secundario">Consumidor final</button>
+                            <button type="button" id="btnQuitarCliente" class="btn-secundario oculto" title="Volver a consumidor final">✕ Quitar cliente</button>
                         </div>
                     </div>
 
@@ -334,6 +340,6 @@
     </div>
 </dialog>
 
-<script type="module" src="./dist/app.js?v=4"></script>
+<script type="module" src="./dist/app.js?v=5"></script>
 </body>
 </html>

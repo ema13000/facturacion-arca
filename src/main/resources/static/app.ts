@@ -842,9 +842,28 @@ function seleccionarCliente(cliente: ClienteExplorerDTO | null): void {
     elemento<HTMLInputElement>('inputCliente').value = cliente ? String(cliente.id) : '';
     elemento<HTMLInputElement>('clienteDescripcion').value =
         cliente?.denominacion ?? 'Consumidor final';
-    elemento<HTMLInputElement>('clienteDescripcion').title = cliente
-        ? `CUIT/CUIL: ${cliente.cuitCuil}`
-        : '';
+
+    // Debajo de la razón social: nombre y apellido + CUIT/CUIL
+    const persona = cliente ? nombreCompleto(cliente) : '';
+    elemento('clienteDetalle').textContent = cliente
+        ? [persona, `CUIT/CUIL ${formatearCuit(cliente.cuitCuil)}`].filter(Boolean).join(' · ')
+        : 'Sin identificar';
+
+    elemento('avatarCliente').textContent = cliente
+        ? iniciales(persona || cliente.denominacion)
+        : 'CF';
+
+    // "Quitar cliente" solo tiene sentido si hay un cliente elegido
+    elemento('btnQuitarCliente').classList.toggle('oculto', cliente === null);
+}
+
+function nombreCompleto(cliente: ClienteExplorerDTO): string {
+    return [cliente.nombre, cliente.apellido].filter(Boolean).join(' ');
+}
+
+function iniciales(texto: string): string {
+    return texto.split(/\s+/).filter(Boolean).slice(0, 2)
+        .map(palabra => palabra[0].toUpperCase()).join('');
 }
 
 /* ---------- Ventana de búsqueda: consulta al servidor al presionar Buscar ---------- */
@@ -923,9 +942,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elemento('btnBuscarCliente').addEventListener('click', () => {
         void abrirExplorer(
-            'Seleccionar cliente', ['CUIT/CUIL', 'Razón social'],
+            'Seleccionar cliente', ['CUIT/CUIL', 'Razón social', 'Nombre y apellido'],
             texto => api.buscarClientes(texto),
-            cliente => [cliente.cuitCuil, cliente.denominacion],
+            cliente => [formatearCuit(cliente.cuitCuil), cliente.denominacion, nombreCompleto(cliente) || '-'],
             seleccionarCliente
         );
     });

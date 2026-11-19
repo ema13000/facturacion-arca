@@ -351,13 +351,58 @@ select {
 
 .selector-cliente {
     display: flex;
+    align-items: center;
     gap: 8px;
-}
-.selector-cliente input {
-    flex: 1;
 }
 .selector-cliente button {
     white-space: nowrap;
+}
+
+/* Tarjeta con el cliente elegido: iniciales, razón social, nombre y CUIT */
+.tarjeta-cliente {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    background: #f9fafb;
+    min-width: 0;
+}
+
+.avatar-cliente {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--indigo);
+    background: var(--indigo-suave);
+}
+
+.tarjeta-cliente-datos {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.tarjeta-cliente-datos input#clienteDescripcion {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    min-height: 0;
+    font-weight: 600;
+    font-size: 0.95rem;
+    box-shadow: none;
+}
+
+.tarjeta-cliente-datos small {
+    color: var(--texto-suave);
+    font-size: 0.8rem;
 }
 
 /* ---------- Botones ---------- */

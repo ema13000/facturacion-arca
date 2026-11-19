@@ -9,8 +9,8 @@ let server;
 let origin;
 const root = path.resolve(__dirname, '../../main/resources/static');
 const clientes = [
-    { id: 7, cuitCuil: '20123456789', denominacion: 'Librería Centro' },
-    { id: 9, cuitCuil: '20987654321', denominacion: 'Escuela Norte' }
+    { id: 7, cuitCuil: '20123456789', denominacion: 'Librería Centro', nombre: 'Juan', apellido: 'Pérez' },
+    { id: 9, cuitCuil: '20987654321', denominacion: 'Escuela Norte', nombre: 'María', apellido: 'González' }
 ];
 const listas = [
     { id: 1, descripcion: 'Minorista' },
@@ -88,12 +88,15 @@ test('no muestra usuario ni IVA en la parte superior', async ({ page }) => {
 
 test('busca clientes en el servidor con el botón y permite consumidor final', async ({ page }) => {
     await page.locator('#tabNueva').click();
+    await expect(page.locator('#btnQuitarCliente')).toBeHidden();
     await page.locator('#btnBuscarCliente').click();
+    await expect(page.locator('#explorerColumnas')).toContainText('Nombre y apellido');
     await expect(page.locator('#explorerFilas button')).toHaveCount(0);
     expect(page.pedidos.some(u => u.pathname.endsWith('/clientes'))).toBe(false);
     await buscar(page, 'escuela');
     await expect(page.locator('#explorerFilas tr')).toHaveCount(1);
     await expect(page.locator('#explorerFilas')).toContainText('Escuela Norte');
+    await expect(page.locator('#explorerFilas')).toContainText('María González');
     expect(page.pedidos.find(u => u.pathname.endsWith('/clientes')).searchParams.get('texto')).toBe('escuela');
     await page.locator('#explorerBusqueda').fill('20123456789');
     await page.locator('#explorerBusqueda').press('Enter');
@@ -101,9 +104,14 @@ test('busca clientes en el servidor con el botón y permite consumidor final', a
     await page.locator('#explorerFilas button').click();
     await expect(page.locator('#clienteDescripcion')).toHaveValue('Librería Centro');
     await expect(page.locator('#inputCliente')).toHaveValue('7');
+    await expect(page.locator('#clienteDetalle')).toHaveText('Juan Pérez · CUIT/CUIL 20-12345678-9');
+    await expect(page.locator('#btnQuitarCliente')).toBeVisible();
+    await expect(page.locator('#btnQuitarCliente')).toContainText('Quitar cliente');
     await page.locator('#btnQuitarCliente').click();
     await expect(page.locator('#inputCliente')).toHaveValue('');
     await expect(page.locator('#clienteDescripcion')).toHaveValue('Consumidor final');
+    await expect(page.locator('#clienteDetalle')).toHaveText('Sin identificar');
+    await expect(page.locator('#btnQuitarCliente')).toBeHidden();
 });
 
 test('exige elegir la lista de precios antes de buscar artículos y filtra por ella', async ({ page }) => {

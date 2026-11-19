@@ -661,9 +661,23 @@ function seleccionarCliente(cliente) {
     elemento('inputCliente').value = cliente ? String(cliente.id) : '';
     elemento('clienteDescripcion').value =
         cliente?.denominacion ?? 'Consumidor final';
-    elemento('clienteDescripcion').title = cliente
-        ? `CUIT/CUIL: ${cliente.cuitCuil}`
-        : '';
+    // Debajo de la razón social: nombre y apellido + CUIT/CUIL
+    const persona = cliente ? nombreCompleto(cliente) : '';
+    elemento('clienteDetalle').textContent = cliente
+        ? [persona, `CUIT/CUIL ${formatearCuit(cliente.cuitCuil)}`].filter(Boolean).join(' · ')
+        : 'Sin identificar';
+    elemento('avatarCliente').textContent = cliente
+        ? iniciales(persona || cliente.denominacion)
+        : 'CF';
+    // "Quitar cliente" solo tiene sentido si hay un cliente elegido
+    elemento('btnQuitarCliente').classList.toggle('oculto', cliente === null);
+}
+function nombreCompleto(cliente) {
+    return [cliente.nombre, cliente.apellido].filter(Boolean).join(' ');
+}
+function iniciales(texto) {
+    return texto.split(/\s+/).filter(Boolean).slice(0, 2)
+        .map(palabra => palabra[0].toUpperCase()).join('');
 }
 /* ---------- Ventana de búsqueda: consulta al servidor al presionar Buscar ---------- */
 async function abrirExplorer(titulo, columnas, buscar, celdas, seleccionar) {
@@ -728,7 +742,7 @@ async function abrirExplorer(titulo, columnas, buscar, celdas, seleccionar) {
 document.addEventListener('DOMContentLoaded', () => {
     api.configurar(USUARIO_OPERADOR_ID, PORCENTAJE_IVA_FACTURA_C);
     elemento('btnBuscarCliente').addEventListener('click', () => {
-        void abrirExplorer('Seleccionar cliente', ['CUIT/CUIL', 'Razón social'], texto => api.buscarClientes(texto), cliente => [cliente.cuitCuil, cliente.denominacion], seleccionarCliente);
+        void abrirExplorer('Seleccionar cliente', ['CUIT/CUIL', 'Razón social', 'Nombre y apellido'], texto => api.buscarClientes(texto), cliente => [formatearCuit(cliente.cuitCuil), cliente.denominacion, nombreCompleto(cliente) || '-'], seleccionarCliente);
     });
     elemento('btnQuitarCliente').addEventListener('click', () => seleccionarCliente(null));
     elemento('btnExplorerBuscar').addEventListener('click', () => buscarEnExplorer());

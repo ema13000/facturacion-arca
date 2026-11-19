@@ -48,6 +48,8 @@ export interface ClienteExplorerDTO {
     id: number;
     cuitCuil: string;
     denominacion: string;
+    nombre: string | null;
+    apellido: string | null;
 }
 
 export interface PrecioArticuloExplorerDTO {

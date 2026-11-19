@@ -117,7 +117,8 @@ public class CatalogoService {
     }
 
     private ClienteExplorerDTO aClienteDTO(Cliente cliente) {
-        return new ClienteExplorerDTO(cliente.getId(), cliente.getCuitCuil(), cliente.getDenominacion());
+        return new ClienteExplorerDTO(cliente.getId(), cliente.getCuitCuil(), cliente.getDenominacion(),
+                cliente.getNombre(), cliente.getApellido());
     }
 
     private PrecioArticuloExplorerDTO aPrecioDTO(ListaPrecioArticulo precio) {

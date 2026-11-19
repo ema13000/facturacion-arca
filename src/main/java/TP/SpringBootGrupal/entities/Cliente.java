@@ -20,6 +20,9 @@ public class Cliente extends AuditoriaApp {
     private String cuitCuil;
     @Column(nullable = false)
     private String denominacion;
+    // Nombre y apellido de la persona (o del contacto, si es una empresa). Opcionales.
+    private String nombre;
+    private String apellido;
     @OneToOne
     @JoinColumn(name = "contacto_id", nullable = false)
     private Contacto contacto;
