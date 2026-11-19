@@ -54,8 +54,52 @@ function numeroCampo(id: string): number {
     return numero;
 }
 
+const formatoMoneda = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+});
+
 function moneda(importe: number): string {
-    return `$${importe.toFixed(2)}`;
+    return `$${formatoMoneda.format(importe)}`;
+}
+
+// Íconos (trazos estilo "Lucide") para los botones de acción
+const ICONOS: Record<string, string> = {
+    editar: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    eliminar: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
+    anular: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+    imprimir: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
+    quitar: '<path d="M18 6 6 18M6 6l12 12"/>'
+};
+
+/** Botón de ícono: el texto queda oculto visualmente pero sirve para lectores de pantalla. */
+function botonIcono(
+    texto: string,
+    icono: keyof typeof ICONOS,
+    clase: string,
+    accion: () => void,
+    descripcion = texto
+): HTMLButtonElement {
+    const boton = crearBoton('', `btn-icono ${clase}`, accion);
+    boton.title = descripcion;
+    boton.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONOS[icono]}</svg>`;
+    const etiqueta = document.createElement('span');
+    etiqueta.className = 'sr-only';
+    etiqueta.textContent = texto;
+    boton.appendChild(etiqueta);
+    return boton;
+}
+
+function actualizarKpis(facturas: FacturaReporteDTO[]): void {
+    const contar = (estado: string) => facturas.filter(f => f.estado === estado).length;
+    const total = facturas
+        .filter(f => f.estado !== 'ANULADA')
+        .reduce((suma, f) => suma + f.importeTotal, 0);
+
+    elemento('kpiTotal').textContent = moneda(total);
+    elemento('kpiPendientes').textContent = String(contar('PENDIENTE'));
+    elemento('kpiAutorizadas').textContent = String(contar('AUTORIZADA'));
+    elemento('kpiAnuladas').textContent = String(contar('ANULADA'));
 }
 
 function llenarOpciones(
@@ -162,6 +206,7 @@ function dibujarFacturas(): void {
 
     elemento('contadorFacturas').textContent =
         `${facturas.length} comprobante(s)`;
+    actualizarKpis(facturas);
 
     const porPagina = tamanioPagina();
     const totalPaginas = Math.max(1, Math.ceil(facturas.length / porPagina));
@@ -227,10 +272,10 @@ function dibujarFacturas(): void {
 function accionesSegunEstado(factura: FacturaReporteDTO): HTMLButtonElement[] {
     if (factura.estado === 'PENDIENTE') {
         return [
-            crearBoton('Editar', 'btn-chico btn-secundario', () => {
+            botonIcono('Editar', 'editar', 'icono-azul', () => {
                 void ejecutar(() => editarFactura(factura.id));
-            }),
-            crearBoton('Eliminar', 'btn-chico btn-borrar', () => {
+            }, 'Editar factura'),
+            botonIcono('Eliminar', 'eliminar', 'icono-rojo', () => {
                 void ejecutar(async () => {
                     if (!confirm(`¿Eliminar la factura pendiente N° ${factura.numeroFactura}?`)) {
                         return;
@@ -239,13 +284,13 @@ function accionesSegunEstado(factura: FacturaReporteDTO): HTMLButtonElement[] {
                     await api.eliminarFactura(factura.id);
                     await cargarListado();
                 });
-            })
+            }, 'Eliminar factura pendiente')
         ];
     }
 
     if (factura.estado === 'AUTORIZADA') {
         return [
-            crearBoton('Anular', 'btn-chico btn-anular', () => {
+            botonIcono('Anular', 'anular', 'icono-ambar', () => {
                 void ejecutar(async () => {
                     const motivo = prompt(`Motivo de la anulación de la factura N° ${factura.numeroFactura}:`);
 
@@ -256,8 +301,8 @@ function accionesSegunEstado(factura: FacturaReporteDTO): HTMLButtonElement[] {
                     await api.actualizarEstado(factura.id, 'ANULADA', motivo);
                     await cargarListado();
                 });
-            }),
-            crearBoton('Imprimir', 'btn-chico btn-primario', () => {
+            }, 'Anular factura'),
+            botonIcono('Imprimir', 'imprimir', 'icono-indigo', () => {
                 // La ventana se abre en el mismo clic para que el navegador no la bloquee
                 const ventana = window.open('', '_blank');
                 void ejecutar(async () => {
@@ -271,7 +316,7 @@ function accionesSegunEstado(factura: FacturaReporteDTO): HTMLButtonElement[] {
                         throw error;
                     }
                 });
-            })
+            }, 'Imprimir factura con CAE')
         ];
     }
 
@@ -498,10 +543,10 @@ function dibujarRenglones(): void {
         celdaSubtotal.className = 'texto-derecha';
         celdaSubtotal.dataset.subtotal = '';
 
-        const quitar = crearBoton('Quitar', 'btn-chico btn-borrar', () => {
+        const quitar = botonIcono('Quitar', 'eliminar', 'icono-rojo', () => {
             renglones.splice(indice, 1);
             dibujarRenglones();
-        });
+        }, 'Quitar renglón');
 
         fila.insertCell().appendChild(quitar);
     });

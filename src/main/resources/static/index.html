@@ -4,20 +4,69 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Facturación</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 
-<header class="topbar">
-    <h1>Sistema de Facturación</h1>
-    <nav class="nav-tabs">
-        <button id="tabListado" class="tab-btn activo">Listado de Comprobantes</button>
-        <button id="tabNueva" class="tab-btn">+ Registrar Factura</button>
+<div class="app">
+<aside class="sidebar">
+    <div class="marca">
+        <span class="marca-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></svg>
+        </span>
+        <div>
+            <strong>Facturación</strong>
+            <small>Factura C · ARCA</small>
+        </div>
+    </div>
+
+    <nav class="nav-tabs" aria-label="Secciones">
+        <button id="tabListado" class="tab-btn activo">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            Comprobantes
+        </button>
+        <button id="tabNueva" class="tab-btn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Registrar Factura
+        </button>
     </nav>
-</header>
+
+    <div class="sidebar-pie">
+        <span class="punto-verde" aria-hidden="true"></span>
+        Homologación ARCA
+    </div>
+</aside>
 
 <main class="contenedor">
     <div id="seccionListado">
+        <header class="encabezado-pagina">
+            <div>
+                <h1>Comprobantes</h1>
+                <p>Consultá, filtrá y gestioná las facturas emitidas.</p>
+            </div>
+        </header>
+
+        <section class="kpis" aria-label="Resumen">
+            <article class="kpi kpi-indigo">
+                <span class="kpi-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+                <div><small>Total facturado</small><strong id="kpiTotal">$0.00</strong></div>
+            </article>
+            <article class="kpi kpi-ambar">
+                <span class="kpi-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
+                <div><small>Pendientes</small><strong id="kpiPendientes">0</strong></div>
+            </article>
+            <article class="kpi kpi-verde">
+                <span class="kpi-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg></span>
+                <div><small>Autorizadas</small><strong id="kpiAutorizadas">0</strong></div>
+            </article>
+            <article class="kpi kpi-rojo">
+                <span class="kpi-icono" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg></span>
+                <div><small>Anuladas</small><strong id="kpiAnuladas">0</strong></div>
+            </article>
+        </section>
+
         <section class="panel">
             <div class="panel-titulo">
                 <span>Filtrar Comprobantes</span>
@@ -108,6 +157,12 @@
 
 
     <div id="seccionAlta" class="oculto">
+        <header class="encabezado-pagina">
+            <div>
+                <h1>Registrar factura</h1>
+                <p>Completá los datos, elegí el cliente y cargá los artículos.</p>
+            </div>
+        </header>
         <form id="formAltaFactura">
             <section class="panel">
                 <div class="panel-titulo">
@@ -235,6 +290,7 @@
     </div>
 
 </main>
+</div>
 
 <dialog id="explorerDialog" class="explorer" aria-labelledby="explorerTitulo">
     <div class="explorer-cabecera">

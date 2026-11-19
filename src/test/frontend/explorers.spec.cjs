@@ -222,6 +222,32 @@ test('las acciones dependen del estado de la factura', async ({ page }) => {
     await expect(anulada.getByRole('button')).toHaveCount(0);
 });
 
+test('las acciones son botones con ícono y descripción al pasar el mouse', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 2, estado: 'AUTORIZADA' }, { ...reporte, id: 1, estado: 'PENDIENTE' }
+    ] }));
+    await page.locator('#btnAplicarFiltros').click();
+    for (const nombre of ['Editar', 'Eliminar', 'Anular', 'Imprimir']) {
+        const boton = page.getByRole('button', { name: nombre, exact: true });
+        await expect(boton).toHaveAttribute('title', new RegExp(nombre));
+        await expect(boton.locator('svg')).toHaveCount(1);
+    }
+});
+
+test('las tarjetas de resumen muestran totales por estado', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 4, estado: 'AUTORIZADA', importeTotal: 1000 },
+        { ...reporte, id: 3, estado: 'PENDIENTE', importeTotal: 200 },
+        { ...reporte, id: 2, estado: 'PENDIENTE', importeTotal: 50 },
+        { ...reporte, id: 1, estado: 'ANULADA', importeTotal: 999 }
+    ] }));
+    await page.locator('#btnAplicarFiltros').click();
+    await expect(page.locator('#kpiTotal')).toHaveText('$1,250.00');
+    await expect(page.locator('#kpiPendientes')).toHaveText('2');
+    await expect(page.locator('#kpiAutorizadas')).toHaveText('1');
+    await expect(page.locator('#kpiAnuladas')).toHaveText('1');
+});
+
 test('imprimir una autorizada muestra CAE y vencimiento', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA' }] }));
     await page.route('**/api/facturas/1/impresion', route => route.fulfill({ json: {
