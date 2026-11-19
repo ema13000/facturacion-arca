@@ -6,7 +6,7 @@
     <title>Sistema de Facturación</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <link rel="stylesheet" href="./style.css?v=3">
+    <link rel="stylesheet" href="./style.css?v=4">
 </head>
 <body>
 
@@ -213,17 +213,11 @@
                         </div>
                     </div>
 
-                    <div class="campo">
-                        <label for="inputTipoDocumentoArca">Tipo de documento del cliente</label>
-                        <select id="inputTipoDocumentoArca">
-                            <option value="80">CUIT</option>
-                            <option value="86">CUIL</option>
-                        </select>
-                        <small class="ayuda-input">
-                            Sin cliente, se factura a consumidor final sin identificar.
-                        </small>
-                    </div>
                 </div>
+                <small class="ayuda-input">
+                    Si no elegís un cliente, se factura a consumidor final. El tipo de documento
+                    se indica después, al autorizar la factura en ARCA.
+                </small>
             </section>
 
             <section class="panel">
@@ -246,6 +240,7 @@
                     <table>
                         <thead>
                         <tr>
+                            <th>Código</th>
                             <th>Artículo</th>
                             <th class="texto-derecha">Precio unit.</th>
                             <th>Cantidad</th>
@@ -292,6 +287,32 @@
 </main>
 </div>
 
+<dialog id="autorizarDialog" class="explorer dialogo-autorizar" aria-labelledby="autorizarTitulo">
+    <div class="explorer-cabecera">
+        <h2 id="autorizarTitulo">Autorizar en ARCA</h2>
+        <button type="button" id="btnCerrarAutorizar" class="btn-cerrar" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="autorizar-cuerpo">
+        <p class="autorizar-aviso">Se va a informar la factura a ARCA para obtener el CAE. Después ya no se podrá editar ni eliminar.</p>
+        <dl class="autorizar-datos">
+            <dt>Cliente</dt><dd id="autorizarCliente"></dd>
+            <dt>Documento</dt><dd id="autorizarDocumento"></dd>
+            <dt>Total</dt><dd id="autorizarTotal"></dd>
+        </dl>
+        <div class="campo" id="campoTipoDocumento">
+            <label for="autorizarTipoDocumento">Tipo de documento del cliente</label>
+            <select id="autorizarTipoDocumento">
+                <option value="80">CUIT</option>
+                <option value="86">CUIL</option>
+            </select>
+        </div>
+        <div class="acciones-barra acciones-final">
+            <button type="button" id="btnCancelarAutorizar" class="btn-secundario">Cancelar</button>
+            <button type="button" id="btnConfirmarAutorizar" class="btn-primario">Autorizar</button>
+        </div>
+    </div>
+</dialog>
+
 <dialog id="explorerDialog" class="explorer" aria-labelledby="explorerTitulo">
     <div class="explorer-cabecera">
         <h2 id="explorerTitulo">Buscar</h2>
@@ -313,6 +334,6 @@
     </div>
 </dialog>
 
-<script type="module" src="./dist/app.js?v=3"></script>
+<script type="module" src="./dist/app.js?v=4"></script>
 </body>
 </html>

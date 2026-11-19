@@ -26,6 +26,10 @@ export class FacturaService {
         });
         return this.obtenerJson(`${this.catalogosUrl}/precios-articulos?${params}`);
     }
+    obtenerPrecioPorCodigo(listaPrecioId, codigo) {
+        const params = new URLSearchParams({ listaPrecioId: String(listaPrecioId), codigo });
+        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/por-codigo?${params}`);
+    }
     obtenerPrecioArticulo(id) {
         return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/${id}`);
     }
@@ -135,7 +139,17 @@ export class FacturaService {
     }
     async comprobarRespuesta(response) {
         if (!response.ok) {
-            throw new Error(`La API respondió ${response.status}: ${await response.text()}`);
+            const texto = await response.text();
+            let mensaje = texto;
+            try {
+                // El backend responde {"mensaje": "..."}; si viene así, mostramos solo el texto
+                const json = JSON.parse(texto);
+                mensaje = json.mensaje ?? json.message ?? texto;
+            }
+            catch {
+                // no era JSON: se muestra tal cual
+            }
+            throw new Error(`Error ${response.status}: ${mensaje}`);
         }
     }
     async autorizarFactura(id, tipoDocumento, numeroDocumento) {

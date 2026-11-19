@@ -55,6 +55,16 @@ test.beforeEach(async ({ page }) => {
             const lista = Number(url.searchParams.get('listaPrecioId'));
             body = precios.filter(p => p.listaPrecioId === lista && coincide(texto, [p.articuloCodigo, p.articuloDenominacion]));
         }
+        else if (url.pathname.endsWith('/precios-articulos/por-codigo')) {
+            const lista = Number(url.searchParams.get('listaPrecioId'));
+            const codigo = (url.searchParams.get('codigo') ?? '').trim().toUpperCase();
+            const encontrado = precios.find(p => p.listaPrecioId === lista && p.articuloCodigo === codigo);
+            await route.fulfill(encontrado ? { json: encontrado } : { status: 404, json: { mensaje: `No existe el artículo ${codigo} en la lista de precios elegida` } });
+            return;
+        }
+        else if (url.pathname.endsWith('/autorizar-arca')) body = {
+            numeroComprobante: 1, resultado: { resultado: 'A', cae: '7512', fechaVencimiento: '2026-11-30', observaciones: [] }
+        };
         else if (/\/precios-articulos\/\d+$/.test(url.pathname)) body = precios.find(p => url.pathname.endsWith('/' + p.id));
         else if (url.pathname.endsWith('/edicion')) body = {
             numeroFactura: 1, clienteId: 7, condicionIvaId: 1, tipoMonedaId: 1, puntoVentaId: 1,
@@ -219,7 +229,7 @@ test('las acciones dependen del estado de la factura', async ({ page }) => {
     await page.locator('#btnAplicarFiltros').click();
     const [autorizada, pendiente, anulada] = [0, 1, 2].map(i => page.locator('#tbodyFacturas tr').nth(i));
     await expect(autorizada.getByRole('button')).toHaveText(['Anular', 'Imprimir']);
-    await expect(pendiente.getByRole('button')).toHaveText(['Editar', 'Eliminar']);
+    await expect(pendiente.getByRole('button')).toHaveText(['Editar', 'Eliminar', 'Autorizar en ARCA']);
     await expect(anulada.getByRole('button')).toHaveCount(0);
 });
 
@@ -292,14 +302,91 @@ test('muestra subtotal, bonificación y total mientras se cargan artículos', as
     await buscar(page, 'cuaderno');
     await page.locator('#explorerFilas button').click();
     const fila = page.locator('#tbodyRenglones tr').first();
-    await fila.locator('input').nth(0).fill('3');
-    await fila.locator('input').nth(1).fill('10');
+    await fila.locator('input[type=number]').nth(0).fill('3');
+    await fila.locator('input[type=number]').nth(1).fill('10');
     await expect(fila.locator('[data-subtotal]')).toHaveText('$270.00');
     await expect(page.locator('#subtotalFactura')).toHaveText('$300.00');
     await expect(page.locator('#bonificacionFactura')).toHaveText('-$30.00');
     await expect(page.locator('#totalFactura')).toHaveText('$270.00');
     await expect(page.locator('#cantidadArticulos')).toHaveText('1');
     await expect(fila.locator('[data-subtotal]')).toBeInViewport();
+});
+
+test('cargar un artículo escribiendo su código y Enter', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
+    await expect(codigo).toBeDisabled();
+    await page.locator('#inputListaPrecio').selectOption('1');
+    await codigo.fill('b1');
+    await codigo.press('Enter');
+    await expect(page.locator('#tbodyRenglones')).toContainText('Lápiz');
+    await expect(codigo).toHaveValue('B1');
+    await expect(page.locator('#totalFactura')).toHaveText('$10.00');
+    const pedido = page.pedidos.find(u => u.pathname.endsWith('/por-codigo'));
+    expect(pedido.searchParams.get('listaPrecioId')).toBe('1');
+});
+
+test('un código inexistente se avisa y no carga nada', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    await page.locator('#inputListaPrecio').selectOption('1');
+    const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
+    await codigo.fill('ZZZ-1');
+    const dialogo = page.waitForEvent('dialog');
+    await codigo.press('Enter');
+    const alerta = await dialogo;
+    expect(alerta.message()).toContain('ZZZ-1');
+    await alerta.accept();
+    await expect(page.locator('#tbodyRenglones')).toContainText('Sin artículo seleccionado');
+});
+
+test('guardar deja la factura pendiente y no la manda a ARCA', async ({ page }) => {
+    await expect(page.locator('#inputTipoDocumentoArca')).toHaveCount(0);
+    await page.locator('#tabNueva').click();
+    await page.locator('#inputListaPrecio').selectOption('1');
+    const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
+    await codigo.fill('A8');
+    await codigo.press('Enter');
+    await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
+    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) await page.locator('#' + id).selectOption('1');
+    const mensajes = [];
+    page.on('dialog', dialog => { mensajes.push(dialog.message()); dialog.accept(); });
+    await page.locator('#btnGuardarFactura').click();
+    await expect(page.locator('#seccionListado')).toBeVisible();
+    expect(page.pedidos.some(u => u.pathname.endsWith('/autorizar-arca'))).toBe(false);
+    expect(mensajes.join(' ')).toContain('PENDIENTE');
+});
+
+test('autorizar en ARCA es un paso aparte que pide el tipo de documento del cliente', async ({ page }) => {
+    await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 5, numeroFactura: 5, clienteCuitCuil: '20123456789' }
+    ] }));
+    await page.locator('#btnAplicarFiltros').click();
+    await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
+    const dialogo = page.locator('#autorizarDialog');
+    await expect(dialogo).toBeVisible();
+    await expect(dialogo).toContainText('Librería Centro');
+    await expect(dialogo).toContainText('20-12345678-9');
+    await page.locator('#autorizarTipoDocumento').selectOption('86');
+    const pedido = page.waitForRequest(r => r.url().includes('/autorizar-arca'));
+    const alerta = page.waitForEvent('dialog');
+    await page.locator('#btnConfirmarAutorizar').click();
+    await (await alerta).accept();
+    expect((await pedido).postDataJSON()).toEqual({ tipoDocumento: 86, numeroDocumento: 20123456789 });
+});
+
+test('autorizar a consumidor final no pide tipo de documento', async ({ page }) => {
+    await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 6, clienteDenominacion: 'Consumidor Final', clienteCuitCuil: null }
+    ] }));
+    await page.locator('#btnAplicarFiltros').click();
+    await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
+    await expect(page.locator('#autorizarTipoDocumento')).toBeHidden();
+    await expect(page.locator('#autorizarDialog')).toContainText('sin identificar');
+    const pedido = page.waitForRequest(r => r.url().includes('/autorizar-arca'));
+    const alerta = page.waitForEvent('dialog');
+    await page.locator('#btnConfirmarAutorizar').click();
+    await (await alerta).accept();
+    expect((await pedido).postDataJSON()).toEqual({ tipoDocumento: 99, numeroDocumento: 0 });
 });
 
 test('una búsqueda sin coincidencias se informa', async ({ page }) => {

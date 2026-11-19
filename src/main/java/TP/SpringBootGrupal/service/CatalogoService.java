@@ -92,6 +92,18 @@ public class CatalogoService {
     }
 
     @Transactional(readOnly = true)
+    public PrecioArticuloExplorerDTO obtenerPrecioPorCodigo(Long listaPrecioId, String codigo) {
+        String buscado = normalizar(codigo).toUpperCase();
+
+        return listaPrecioArticuloRepository
+                .findFirstByListaPrecio_IdAndArticulo_CodigoIgnoreCase(listaPrecioId, buscado)
+                .filter(this::estaActivo)
+                .map(this::aPrecioDTO)
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "No existe el artículo " + buscado + " en la lista de precios elegida"));
+    }
+
+    @Transactional(readOnly = true)
     public PrecioArticuloExplorerDTO obtenerPrecioArticulo(Long id) {
         return listaPrecioArticuloRepository.findById(id)
                 .map(this::aPrecioDTO)

@@ -162,6 +162,43 @@ class ExplorerTests {
         verify(precios, never()).findAll();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"ART-015", "  art-015 "})
+    void buscaUnArticuloPorCodigoExactoEnLaListaElegida(String codigo) {
+        var precio = precio(40, 1985);
+        precio.getArticulo().setCodigo("ART-015");
+        precio.getListaPrecio().setId(3L);
+        when(precios.findFirstByListaPrecio_IdAndArticulo_CodigoIgnoreCase(3L, "ART-015"))
+                .thenReturn(Optional.of(precio));
+        var resultado = catalogo().obtenerPrecioPorCodigo(3L, codigo);
+        assertEquals(40L, resultado.id());
+        assertEquals(1985, resultado.precioVenta());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void codigoInexistenteODadoDeBajaNoSeEncuentra(boolean baja) {
+        var precio = precio(40, 100);
+        precio.getArticulo().setFechaBaja(new Date());
+        when(precios.findFirstByListaPrecio_IdAndArticulo_CodigoIgnoreCase(3L, "ART-999"))
+                .thenReturn(baja ? Optional.of(precio) : Optional.empty());
+        var error = assertThrows(RecursoNoEncontradoException.class,
+                () -> catalogo().obtenerPrecioPorCodigo(3L, "ART-999"));
+        assertTrue(error.getMessage().contains("ART-999"));
+    }
+
+    @Test
+    void elReporteIncluyeElCuitDelCliente() {
+        FacturaVenta factura = new FacturaVenta();
+        Cliente cliente = new Cliente();
+        cliente.setDenominacion("Librería");
+        cliente.setCuitCuil("20123456786");
+        factura.setCliente(cliente);
+        factura.setCondicionIva(new CondicionIva());
+        factura.setPuntoVenta(new PuntoVenta());
+        assertEquals("20123456786", TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).getClienteCuitCuil());
+    }
+
     @Test
     void buscarPreciosExigeListaDePrecios() {
         assertThrows(IllegalArgumentException.class, () -> catalogo().buscarPreciosArticulos(null, "x"));

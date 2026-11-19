@@ -49,6 +49,14 @@ public class CatalogoRestController {
         return service.buscarPreciosArticulos(listaPrecioId, texto);
     }
 
+    @GetMapping("/precios-articulos/por-codigo")
+    public PrecioArticuloExplorerDTO obtenerPrecioPorCodigo(
+            @RequestParam("listaPrecioId") Long listaPrecioId,
+            @RequestParam("codigo") String codigo
+    ) {
+        return service.obtenerPrecioPorCodigo(listaPrecioId, codigo);
+    }
+
     @GetMapping("/precios-articulos/{id}")
     public PrecioArticuloExplorerDTO obtenerPrecioArticulo(@PathVariable("id") Long id) {
         return service.obtenerPrecioArticulo(id);

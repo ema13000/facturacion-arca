@@ -11,6 +11,10 @@ import java.util.List;
 public interface ListaPrecioArticuloRepository extends JpaRepository<ListaPrecioArticulo, Long> {
     List<ListaPrecioArticulo> findByArticulo_Id(Long articuloId);
 
+    // Precio de un artículo por su código exacto dentro de una lista
+    java.util.Optional<ListaPrecioArticulo> findFirstByListaPrecio_IdAndArticulo_CodigoIgnoreCase(
+            Long listaPrecioId, String codigo);
+
     // Busca artículos de UNA lista de precios por código o denominación
     @Query("""
             select p from ListaPrecioArticulo p

@@ -24,11 +24,16 @@ public class FacturaReporteDTO {
     private long cantidadItems;
     private String estado;
     private String observaciones;
+    // CUIT/CUIL del cliente (null si es consumidor final): se usa al autorizar en ARCA
+    private String clienteCuitCuil;
 
     public static FacturaReporteDTO toDTO(FacturaVenta factura) {
         String cliente = factura.getCliente() == null
                 ? "Consumidor Final"
                 : factura.getCliente().getDenominacion();
+        String cuit = factura.getCliente() == null
+                ? null
+                : factura.getCliente().getCuitCuil();
 
         return new FacturaReporteDTO(
                 factura.getId(),
@@ -40,7 +45,8 @@ public class FacturaReporteDTO {
                 factura.getImporteTotal(),
                 factura.getDetalles().size(),
                 factura.getEstado(),
-                factura.getObservaciones()
+                factura.getObservaciones(),
+                cuit
         );
     }
 }

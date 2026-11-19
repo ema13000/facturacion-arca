@@ -23,6 +23,7 @@ export interface FacturaReporteDTO {
     cantidadItems: number;
     estado: string;
     observaciones: string | null;
+    clienteCuitCuil: string | null;
 }
 
 export interface FacturaFiltrosDTO {

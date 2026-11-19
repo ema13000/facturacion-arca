@@ -46,7 +46,8 @@ const ICONOS = {
     eliminar: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
     anular: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
     imprimir: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
-    quitar: '<path d="M18 6 6 18M6 6l12 12"/>'
+    quitar: '<path d="M18 6 6 18M6 6l12 12"/>',
+    enviar: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'
 };
 /** Botón de ícono: el texto queda oculto visualmente pero sirve para lectores de pantalla. */
 function botonIcono(texto, icono, clase, accion, descripcion = texto) {
@@ -220,7 +221,8 @@ function accionesSegunEstado(factura) {
                     await api.eliminarFactura(factura.id);
                     await cargarListado();
                 });
-            }, 'Eliminar factura pendiente')
+            }, 'Eliminar factura pendiente'),
+            botonIcono('Autorizar en ARCA', 'enviar', 'icono-verde', () => abrirAutorizacion(factura), 'Informar la factura a ARCA y obtener el CAE')
         ];
     }
     if (factura.estado === 'AUTORIZADA') {
@@ -377,6 +379,26 @@ function buscarArticulo(renglon) {
         dibujarRenglones();
     });
 }
+let buscandoCodigo = false;
+async function cargarArticuloPorCodigo(renglon, codigo) {
+    const listaPrecioId = listaPrecioElegida();
+    if (listaPrecioId === null || buscandoCodigo)
+        return;
+    buscandoCodigo = true;
+    try {
+        const precio = await api.obtenerPrecioPorCodigo(listaPrecioId, codigo);
+        preciosElegidos.set(precio.id, precio);
+        renglon.listaPrecioArticuloId = precio.id;
+    }
+    catch (error) {
+        renglon.listaPrecioArticuloId = 0;
+        throw error;
+    }
+    finally {
+        buscandoCodigo = false;
+        dibujarRenglones();
+    }
+}
 function dibujarRenglones() {
     const tbody = elemento('tbodyRenglones');
     tbody.replaceChildren();
@@ -384,11 +406,35 @@ function dibujarRenglones() {
     renglones.forEach((renglon, indice) => {
         const fila = tbody.insertRow();
         const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
+        // Código del artículo: se escribe y con Enter (o al salir del campo) se carga
+        const inputCodigo = document.createElement('input');
+        inputCodigo.type = 'text';
+        inputCodigo.className = 'input-codigo';
+        inputCodigo.placeholder = 'Ej: ART-015';
+        inputCodigo.value = precio?.articuloCodigo ?? '';
+        inputCodigo.dataset.codigo = '';
+        inputCodigo.disabled = sinLista;
+        inputCodigo.title = sinLista ? 'Elegí primero una lista de precios' : 'Escribí el código y presioná Enter';
+        inputCodigo.setAttribute('aria-label', `Código del artículo del renglón ${indice + 1}`);
+        const cargarPorCodigo = () => {
+            const codigo = inputCodigo.value.trim();
+            if (codigo === '' || codigo.toUpperCase() === precio?.articuloCodigo)
+                return;
+            void ejecutar(() => cargarArticuloPorCodigo(renglon, codigo));
+        };
+        inputCodigo.addEventListener('keydown', evento => {
+            if (evento.key === 'Enter') {
+                evento.preventDefault();
+                cargarPorCodigo();
+            }
+        });
+        inputCodigo.addEventListener('change', cargarPorCodigo);
+        fila.insertCell().appendChild(inputCodigo);
         const celdaArticulo = fila.insertCell();
         const descripcion = document.createElement('span');
         descripcion.className = 'precio-seleccionado';
         descripcion.textContent = precio
-            ? `${precio.articuloCodigo} - ${precio.articuloDenominacion}`
+            ? precio.articuloDenominacion
             : renglon.listaPrecioArticuloId > 0
                 ? `Precio #${renglon.listaPrecioArticuloId} no disponible. Seleccioná otro.`
                 : 'Sin artículo seleccionado';
@@ -504,19 +550,70 @@ async function editarFactura(id) {
     elemento('btnGuardarFactura').textContent =
         `Guardar cambios de factura ${factura.numeroFactura}`;
 }
-function obtenerDocumentoArca() {
-    if (clienteSeleccionado === null) {
+/* ---------- Autorización en ARCA (paso aparte, desde el listado) ---------- */
+let facturaParaAutorizar = null;
+function formatearCuit(cuit) {
+    const limpio = cuit.replace(/\D/g, '');
+    return limpio.length === 11
+        ? `${limpio.slice(0, 2)}-${limpio.slice(2, 10)}-${limpio.slice(10)}`
+        : cuit;
+}
+function abrirAutorizacion(factura) {
+    facturaParaAutorizar = factura;
+    const tieneCliente = Boolean(factura.clienteCuitCuil);
+    elemento('autorizarTitulo').textContent = `Autorizar factura N° ${factura.numeroFactura} en ARCA`;
+    elemento('autorizarCliente').textContent = factura.clienteDenominacion;
+    elemento('autorizarTotal').textContent = moneda(factura.importeTotal);
+    elemento('autorizarDocumento').textContent = tieneCliente
+        ? formatearCuit(factura.clienteCuitCuil)
+        : 'Consumidor final sin identificar';
+    // El tipo de documento solo tiene sentido si hay un cliente con CUIT/CUIL
+    elemento('campoTipoDocumento').classList.toggle('oculto', !tieneCliente);
+    elemento('autorizarTipoDocumento').value = '80';
+    elemento('autorizarDialog').showModal();
+}
+function documentoParaArca(factura) {
+    if (!factura.clienteCuitCuil) {
         return { tipoDocumento: 99, numeroDocumento: 0 };
     }
-    const tipoDocumento = numeroCampo('inputTipoDocumentoArca');
-    if (tipoDocumento !== 80 && tipoDocumento !== 86) {
-        throw new Error('Seleccioná CUIT o CUIL para el cliente.');
-    }
-    const documento = clienteSeleccionado.cuitCuil.trim().replace(/[-\s]/g, '');
+    const tipoDocumento = numeroCampo('autorizarTipoDocumento');
+    const documento = factura.clienteCuitCuil.replace(/\D/g, '');
     if (!/^\d{11}$/.test(documento)) {
         throw new Error('El CUIT/CUIL del cliente debe tener 11 dígitos.');
     }
     return { tipoDocumento, numeroDocumento: Number(documento) };
+}
+async function confirmarAutorizacion() {
+    const factura = facturaParaAutorizar;
+    if (!factura)
+        return;
+    const documento = documentoParaArca(factura);
+    const boton = elemento('btnConfirmarAutorizar');
+    boton.disabled = true;
+    try {
+        const autorizacion = await api.autorizarFactura(factura.id, documento.tipoDocumento, documento.numeroDocumento);
+        elemento('autorizarDialog').close();
+        const resultado = autorizacion.resultado;
+        if (resultado.resultado === 'A') {
+            alert([
+                `Factura ${autorizacion.numeroComprobante} autorizada en ARCA (homologación).`,
+                `CAE: ${resultado.cae}`,
+                `Vencimiento: ${resultado.fechaVencimiento}`,
+                ...resultado.observaciones
+            ].join('\n'));
+        }
+        else {
+            alert([
+                `ARCA rechazó la factura N° ${factura.numeroFactura}. Sigue pendiente.`,
+                ...resultado.observaciones
+            ].join('\n'));
+        }
+        ultimaGuardadaId = factura.id;
+        await cargarListado();
+    }
+    finally {
+        boton.disabled = false;
+    }
 }
 async function guardarFactura() {
     for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) {
@@ -544,36 +641,12 @@ async function guardarFactura() {
         detalles: renglones
     };
     if (facturaEnEdicionId === null) {
-        const documento = obtenerDocumentoArca();
+        // Guardar NO informa a ARCA: la factura queda PENDIENTE y se autoriza en otro paso
         const creada = await api.crearFactura(dto);
         ultimaGuardadaId = creada.id;
-        try {
-            const autorizacion = await api.autorizarFactura(creada.id, documento.tipoDocumento, documento.numeroDocumento);
-            const resultado = autorizacion.resultado;
-            if (resultado.resultado === 'A') {
-                alert([
-                    `Factura ${autorizacion.numeroComprobante} autorizada en homologación.`,
-                    `Total: ${moneda(creada.importeTotal)}`,
-                    `CAE: ${resultado.cae}`,
-                    `Vencimiento: ${resultado.fechaVencimiento}`,
-                    ...resultado.observaciones
-                ].join('\n'));
-            }
-            else {
-                alert([
-                    `La factura N° ${creada.numeroFactura} se guardó, pero ARCA la rechazó.`,
-                    'Quedó pendiente de autorización.',
-                    ...resultado.observaciones
-                ].join('\n'));
-            }
-        }
-        catch (error) {
-            const mensaje = error instanceof Error ? error.message : String(error);
-            alert(`La factura N° ${creada.numeroFactura} se guardó, ` +
-                `pero no se pudo confirmar su autorización en ARCA.\n` +
-                `${mensaje}\n` +
-                'No vuelvas a crearla: queda pendiente de autorización.');
-        }
+        alert(`Factura N° ${creada.numeroFactura} guardada como PENDIENTE. ` +
+            `Total: ${moneda(creada.importeTotal)}.\n` +
+            'Para informarla a ARCA usá el botón "Autorizar en ARCA" del listado.');
     }
     else {
         const actualizada = await api.actualizarFactura(facturaEnEdicionId, dto);
@@ -679,6 +752,14 @@ document.addEventListener('DOMContentLoaded', () => {
         buscarEnExplorer = () => { };
     });
     elemento('inputListaPrecio').addEventListener('change', cambiarListaPrecio);
+    elemento('btnConfirmarAutorizar').addEventListener('click', () => {
+        void ejecutar(confirmarAutorizacion);
+    });
+    for (const id of ['btnCancelarAutorizar', 'btnCerrarAutorizar']) {
+        elemento(id).addEventListener('click', () => {
+            elemento('autorizarDialog').close();
+        });
+    }
     elemento('tabNueva').addEventListener('click', () => {
         void ejecutar(async () => {
             await cargarOpciones();
