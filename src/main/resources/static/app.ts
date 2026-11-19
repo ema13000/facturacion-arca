@@ -681,6 +681,8 @@ async function editarFactura(id: number): Promise<void> {
         elemento<HTMLInputElement>('inputCliente').value = String(factura.clienteId);
         elemento<HTMLInputElement>('clienteDescripcion').value =
             `Cliente #${factura.clienteId} no disponible`;
+        elemento('clienteNombreVisible').textContent =
+            `Cliente #${factura.clienteId} no disponible`;
     }
 
     elemento<HTMLSelectElement>('inputCondicionIva').value = String(factura.condicionIvaId);
@@ -842,6 +844,7 @@ function seleccionarCliente(cliente: ClienteExplorerDTO | null): void {
     elemento<HTMLInputElement>('inputCliente').value = cliente ? String(cliente.id) : '';
     elemento<HTMLInputElement>('clienteDescripcion').value =
         cliente?.denominacion ?? 'Consumidor final';
+    elemento('clienteNombreVisible').textContent = cliente?.denominacion ?? 'Consumidor final';
 
     // Debajo de la razón social: nombre y apellido + CUIT/CUIL
     const persona = cliente ? nombreCompleto(cliente) : '';

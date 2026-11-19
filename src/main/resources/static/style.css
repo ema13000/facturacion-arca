@@ -364,11 +364,37 @@ select {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
+    padding: 8px 14px;
     border: 1px solid #d1d5db;
     border-radius: 10px;
     background: #f9fafb;
     min-width: 0;
+    text-align: left;
+    font-weight: 400;
+    color: var(--texto);
+    cursor: pointer;
+}
+
+.tarjeta-cliente:hover {
+    border-color: var(--indigo);
+    background: var(--indigo-suave);
+}
+
+.tarjeta-cliente-datos strong {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+/* "Cambiar" con lupa a la derecha: indica que la tarjeta se puede tocar */
+.tarjeta-cliente-accion {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--indigo);
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 .avatar-cliente {

@@ -535,6 +535,8 @@ async function editarFactura(id) {
         elemento('inputCliente').value = String(factura.clienteId);
         elemento('clienteDescripcion').value =
             `Cliente #${factura.clienteId} no disponible`;
+        elemento('clienteNombreVisible').textContent =
+            `Cliente #${factura.clienteId} no disponible`;
     }
     elemento('inputCondicionIva').value = String(factura.condicionIvaId);
     elemento('inputMoneda').value = String(factura.tipoMonedaId);
@@ -661,6 +663,7 @@ function seleccionarCliente(cliente) {
     elemento('inputCliente').value = cliente ? String(cliente.id) : '';
     elemento('clienteDescripcion').value =
         cliente?.denominacion ?? 'Consumidor final';
+    elemento('clienteNombreVisible').textContent = cliente?.denominacion ?? 'Consumidor final';
     // Debajo de la razón social: nombre y apellido + CUIT/CUIL
     const persona = cliente ? nombreCompleto(cliente) : '';
     elemento('clienteDetalle').textContent = cliente

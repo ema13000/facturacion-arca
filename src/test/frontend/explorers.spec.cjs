@@ -320,6 +320,23 @@ test('muestra subtotal, bonificación y total mientras se cargan artículos', as
     await expect(fila.locator('[data-subtotal]')).toBeInViewport();
 });
 
+test('tocando la tarjeta del cliente se abre el buscador, sin botón aparte', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    await expect(page.getByRole('button', { name: 'Buscar cliente', exact: true })).toHaveCount(0);
+    const tarjeta = page.locator('.tarjeta-cliente');
+    await expect(tarjeta).toContainText('Consumidor final');
+    await tarjeta.click();
+    await expect(page.locator('#explorerDialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await tarjeta.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#explorerDialog')).toBeVisible();
+    await buscar(page, 'escuela');
+    await page.locator('#explorerFilas button').click();
+    await expect(tarjeta).toContainText('Escuela Norte');
+    await expect(tarjeta).toContainText('María González');
+});
+
 test('cargar un artículo escribiendo su código y Enter', async ({ page }) => {
     await page.locator('#tabNueva').click();
     const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
