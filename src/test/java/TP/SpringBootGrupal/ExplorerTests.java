@@ -6,11 +6,14 @@ import TP.SpringBootGrupal.dtos.Factura.FacturaRequestDTO;
 import TP.SpringBootGrupal.dtos.FacturaDetalle.FacturaDetalleRequestDTO;
 import TP.SpringBootGrupal.entities.*;
 import TP.SpringBootGrupal.repository.*;
+import TP.SpringBootGrupal.config.DatosIniciales;
+import TP.SpringBootGrupal.dtos.OpcionDTO;
 import TP.SpringBootGrupal.service.CatalogoService;
 import TP.SpringBootGrupal.service.FacturaServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.data.domain.PageRequest;
 
 import java.util.Date;
 import java.util.List;
@@ -18,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class ExplorerTests {
@@ -28,6 +32,9 @@ class ExplorerTests {
     private final CondicionIvaRepository condiciones = mock(CondicionIvaRepository.class);
     private final FacturaVentaRepository facturas = mock(FacturaVentaRepository.class);
     private final UsuarioRepository usuarios = mock(UsuarioRepository.class);
+    private final ListaPrecioRepository listas = mock(ListaPrecioRepository.class);
+    private final ContactoRepository contactos = mock(ContactoRepository.class);
+    private final DomicilioRepository domicilios = mock(DomicilioRepository.class);
 
     private ListaPrecioArticulo precio(long id, double importe) {
         Articulo articulo = new Articulo();
@@ -63,9 +70,26 @@ class ExplorerTests {
                 facturas, clientes, condiciones, monedas, puntos, precios, usuarios);
         var dto = new FacturaRequestDTO(null, 1L, 1L, 1L,
                 List.of(new FacturaDetalleRequestDTO(id, 2.0, 0.0)));
-        var resultado = servicio.save(dto, 1L, 1L, 0);
+        var resultado = servicio.save(dto, 1L, 0);
         assertEquals(elegido.getPrecioVenta() * 2, resultado.getImporteTotal());
         verify(precios, never()).findByArticulo_Id(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 41})
+    void generaElNumeroSiguienteDelPuntoDeVenta(long ultimo) {
+        when(precios.findById(25L)).thenReturn(Optional.of(precio(25, 100)));
+        when(usuarios.findById(1L)).thenReturn(Optional.of(new Usuario()));
+        when(condiciones.findById(1L)).thenReturn(Optional.of(new CondicionIva()));
+        when(monedas.findById(1L)).thenReturn(Optional.of(new TipoMoneda()));
+        when(puntos.findById(1L)).thenReturn(Optional.of(new PuntoVenta()));
+        when(facturas.obtenerUltimoNumero(1L)).thenReturn(ultimo);
+        when(facturas.save(any(FacturaVenta.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
+        var servicio = new FacturaServiceImpl(facturas, clientes, condiciones, monedas, puntos, precios, usuarios);
+        var dto = new FacturaRequestDTO(null, 1L, 1L, 1L,
+                List.of(new FacturaDetalleRequestDTO(25L, 1.0, 0.0)));
+        var resultado = servicio.save(dto, 1L, 0);
+        assertEquals(Long.valueOf(ultimo + 1), resultado.getNumeroFactura());
     }
 
     @ParameterizedTest
@@ -81,7 +105,7 @@ class ExplorerTests {
         var servicio = new FacturaServiceImpl(facturas, clientes, condiciones, monedas, puntos, precios, usuarios);
         var dto = new FacturaRequestDTO(null, 1L, 1L, 1L,
                 List.of(new FacturaDetalleRequestDTO(25L, 1.0, 0.0)));
-        assertThrows(RecursoNoEncontradoException.class, () -> servicio.save(dto, 1L, 1L, 0));
+        assertThrows(RecursoNoEncontradoException.class, () -> servicio.save(dto, 1L, 0));
         verify(facturas, never()).save(any());
     }
 
@@ -98,46 +122,82 @@ class ExplorerTests {
         assertEquals(id, FacturaEdicionDTO.toDTO(factura).detalles().get(0).listaPrecioArticuloId());
     }
 
-    @Test
-    void explorerClientesMuestraDatosYExcluyeBajas() {
+    private CatalogoService catalogo() {
+        return new CatalogoService(puntos, monedas, condiciones, clientes, precios, listas);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"lib", "  lib  "})
+    void buscaClientesEnElServidorConLimiteYExcluyeBajas(String texto) {
         Cliente activo = new Cliente();
         activo.setId(7L);
         activo.setDenominacion("Librería");
         activo.setCuitCuil("20123456789");
         Cliente baja = new Cliente();
         baja.setFechaBaja(new Date());
-        when(clientes.findAll()).thenReturn(List.of(activo, baja));
-        var servicio = new CatalogoService(puntos, monedas, condiciones, clientes, precios);
-        var resultado = servicio.obtenerClientes();
+        when(clientes.buscar(eq("lib"), eq(PageRequest.of(0, CatalogoService.LIMITE_RESULTADOS))))
+                .thenReturn(List.of(activo, baja));
+        var resultado = catalogo().buscarClientes(texto);
         assertEquals(1, resultado.size());
         assertEquals(7L, resultado.get(0).id());
         assertEquals("Librería", resultado.get(0).denominacion());
         assertEquals("20123456789", resultado.get(0).cuitCuil());
+        verify(clientes, never()).findAll();
     }
 
     @Test
-    void explorerPreciosDistingueListasYExcluyeBajas() {
+    void buscaPreciosSoloDeLaListaElegidaYExcluyeBajas() {
         var primero = precio(25, 100);
-        var segundo = precio(26, 80);
+        primero.getListaPrecio().setId(3L);
         var baja = precio(27, 90);
         baja.setFechaBaja(new Date());
         var articuloBaja = precio(28, 90);
         articuloBaja.getArticulo().setFechaBaja(new Date());
-        var listaBaja = precio(29, 90);
-        listaBaja.getListaPrecio().setFechaBaja(new Date());
-        when(precios.findAll()).thenReturn(List.of(primero, segundo, baja, articuloBaja, listaBaja));
-        var servicio = new CatalogoService(puntos, monedas, condiciones, clientes, precios);
-        var resultado = servicio.obtenerPreciosArticulos();
-        assertEquals(List.of(25L, 26L), resultado.stream().map(p -> p.id()).toList());
+        when(precios.buscar(eq(3L), eq("cuad"), any(PageRequest.class)))
+                .thenReturn(List.of(primero, baja, articuloBaja));
+        var resultado = catalogo().buscarPreciosArticulos(3L, "cuad");
+        assertEquals(List.of(25L), resultado.stream().map(p -> p.id()).toList());
+        assertEquals(3L, resultado.get(0).listaPrecioId());
         assertEquals("Cuaderno", resultado.get(0).articuloDenominacion());
-        assertEquals("Lista 26", resultado.get(1).listaPrecioDenominacion());
-        assertEquals(80, resultado.get(1).precioVenta());
+        verify(precios, never()).findAll();
+    }
+
+    @Test
+    void buscarPreciosExigeListaDePrecios() {
+        assertThrows(IllegalArgumentException.class, () -> catalogo().buscarPreciosArticulos(null, "x"));
     }
 
     @Test
     void explorersDevuelvenListaVaciaSinRegistros() {
-        var servicio = new CatalogoService(puntos, monedas, condiciones, clientes, precios);
-        assertTrue(servicio.obtenerClientes().isEmpty());
-        assertTrue(servicio.obtenerPreciosArticulos().isEmpty());
+        assertTrue(catalogo().buscarClientes("").isEmpty());
+        assertTrue(catalogo().buscarPreciosArticulos(1L, "").isEmpty());
+    }
+
+    @Test
+    void listasDePrecioSeDevuelvenComoOpciones() {
+        ListaPrecio lista = new ListaPrecio();
+        lista.setId(3L);
+        lista.setDenominacion("Mayorista");
+        when(listas.findByFechaBajaIsNullOrderByDenominacion()).thenReturn(List.of(lista));
+        assertEquals(List.of(new OpcionDTO(3L, "Mayorista")), catalogo().obtenerListasPrecio());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, 4})
+    void cargaClientesDePruebaSoloSiNoHayNinguno(long existentes) {
+        Usuario usuario = new Usuario();
+        when(clientes.count()).thenReturn(existentes);
+        when(usuarios.findAll()).thenReturn(List.of(usuario));
+        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        verify(clientes, times(existentes == 0 ? DatosIniciales.CLIENTES_PRUEBA.size() : 0))
+                .save(any(Cliente.class));
+    }
+
+    @Test
+    void noCargaClientesSiNoHayUsuarios() {
+        when(clientes.count()).thenReturn(0L);
+        when(usuarios.findAll()).thenReturn(List.of());
+        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        verify(clientes, never()).save(any(Cliente.class));
     }
 }

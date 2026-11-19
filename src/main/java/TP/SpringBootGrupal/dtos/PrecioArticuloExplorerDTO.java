@@ -5,6 +5,7 @@ public record PrecioArticuloExplorerDTO(
         String articuloCodigo,
         String articuloDenominacion,
         String listaPrecioDenominacion,
-        double precioVenta
+        double precioVenta,
+        Long listaPrecioId
 ) {
 }

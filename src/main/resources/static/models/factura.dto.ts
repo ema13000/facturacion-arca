@@ -55,6 +55,28 @@ export interface PrecioArticuloExplorerDTO {
     articuloDenominacion: string;
     listaPrecioDenominacion: string;
     precioVenta: number;
+    listaPrecioId: number;
+}
+
+export interface FacturaImpresionDTO {
+    id: number;
+    numeroFactura: number;
+    puntoVentaNumero: number;
+    puntoVentaDescripcion: string;
+    fechaEmision: string;
+    clienteDenominacion: string;
+    clienteCuitCuil: string | null;
+    condicionIva: string;
+    importeTotal: number;
+    cae: string;
+    caeFechaVencimiento: string;
+    detalles: {
+        descripcion: string;
+        cantidad: number;
+        precioUnitario: number;
+        porcentajeBonificacion: number;
+        importeSubtotal: number;
+    }[];
 }
 
 export interface AutorizacionFacturaC {

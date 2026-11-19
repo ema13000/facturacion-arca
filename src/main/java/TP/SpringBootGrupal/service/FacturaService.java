@@ -10,12 +10,13 @@ public interface FacturaService {
 
     public FacturaReporteDTO save(
             FacturaRequestDTO dto,
-            Long numero,
             Long usuarioId,
             double porcentajeIva
     );
 
     FacturaEdicionDTO findParaEdicion(Long id);
+
+    TP.SpringBootGrupal.dtos.Factura.FacturaImpresionDTO findParaImpresion(Long id);
 
     public List<FacturaReporteDTO> findAll();
 

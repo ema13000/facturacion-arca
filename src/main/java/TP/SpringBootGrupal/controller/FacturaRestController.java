@@ -63,14 +63,20 @@ public class FacturaRestController {
         return ResponseEntity.ok(service.findParaEdicion(id));
     }
 
+    @GetMapping("/{id}/impresion")
+    public ResponseEntity<TP.SpringBootGrupal.dtos.Factura.FacturaImpresionDTO> findParaImpresion(
+            @PathVariable("id") Long id
+    ) {
+        return ResponseEntity.ok(service.findParaImpresion(id));
+    }
+
     @PostMapping
     public ResponseEntity<FacturaReporteDTO> save(
             @RequestBody FacturaRequestDTO dto,
-            @RequestParam("numero") Long numero,
             @RequestParam("usuarioId") Long usuarioId,
             @RequestParam("porcentajeIva") double porcentajeIva
     ) {
-        FacturaReporteDTO creada = service.save(dto, numero, usuarioId, porcentajeIva);
+        FacturaReporteDTO creada = service.save(dto, usuarioId, porcentajeIva);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(creada);
     }
@@ -104,5 +110,17 @@ public class FacturaRestController {
     ) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(Map.of("mensaje", ex.getMessage()));
+    }
+
+    // Operación no permitida por el estado de la factura (ej: editar una autorizada)
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<Map<String, String>> operacionNoPermitida(IllegalStateException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("mensaje", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> datoInvalido(IllegalArgumentException ex) {
+        return ResponseEntity.badRequest().body(Map.of("mensaje", ex.getMessage()));
     }
 }

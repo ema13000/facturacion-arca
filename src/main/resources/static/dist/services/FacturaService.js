@@ -3,15 +3,31 @@ export class FacturaService {
         this.baseUrl = 'http://localhost:8080/api/facturas';
         this.catalogosUrl = 'http://localhost:8080/api/catalogos';
     }
-    async obtenerClientes() {
-        const response = await fetch(`${this.catalogosUrl}/clientes`);
+    async obtenerJson(url) {
+        const response = await fetch(url);
         await this.comprobarRespuesta(response);
         return await response.json();
     }
-    async obtenerPreciosArticulos() {
-        const response = await fetch(`${this.catalogosUrl}/precios-articulos`);
-        await this.comprobarRespuesta(response);
-        return await response.json();
+    // Las búsquedas se hacen en el servidor: nunca se trae la tabla entera
+    buscarClientes(texto) {
+        const params = new URLSearchParams({ texto });
+        return this.obtenerJson(`${this.catalogosUrl}/clientes?${params}`);
+    }
+    obtenerCliente(id) {
+        return this.obtenerJson(`${this.catalogosUrl}/clientes/${id}`);
+    }
+    obtenerListasPrecio() {
+        return this.obtenerJson(`${this.catalogosUrl}/listas-precio`);
+    }
+    buscarPreciosArticulos(listaPrecioId, texto) {
+        const params = new URLSearchParams({
+            listaPrecioId: String(listaPrecioId),
+            texto
+        });
+        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos?${params}`);
+    }
+    obtenerPrecioArticulo(id) {
+        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/${id}`);
     }
     async obtenerPuntosVenta() {
         const response = await fetch(`${this.catalogosUrl}/puntos-venta`);
@@ -28,20 +44,15 @@ export class FacturaService {
         await this.comprobarRespuesta(response);
         return await response.json();
     }
-    configurar(usuarioId, porcentajeIva, numero) {
+    configurar(usuarioId, porcentajeIva) {
         if (!Number.isInteger(usuarioId) || usuarioId <= 0) {
             throw new Error('Ingresá un ID de usuario válido.');
         }
         if (!Number.isFinite(porcentajeIva) || porcentajeIva < 0) {
             throw new Error('Ingresá un porcentaje de IVA válido.');
         }
-        if (numero !== undefined
-            && (!Number.isInteger(numero) || numero <= 0)) {
-            throw new Error('Ingresá un número de factura válido.');
-        }
         this.usuarioId = usuarioId;
         this.porcentajeIva = porcentajeIva;
-        this.numero = numero;
     }
     async obtenerFacturas(filtros = {}) {
         const response = await fetch(this.baseUrl);
@@ -58,6 +69,9 @@ export class FacturaService {
                 && (!filtros.fechaHasta || fecha <= filtros.fechaHasta);
         });
     }
+    obtenerImpresion(id) {
+        return this.obtenerJson(`${this.baseUrl}/${id}/impresion`);
+    }
     async obtenerParaEdicion(id) {
         const response = await fetch(`${this.baseUrl}/${id}/edicion`);
         await this.comprobarRespuesta(response);
@@ -65,10 +79,9 @@ export class FacturaService {
     }
     async crearFactura(factura) {
         const params = this.parametrosUsuario();
-        if (this.numero === undefined || this.porcentajeIva === undefined) {
-            throw new Error('Falta configurar número o IVA.');
+        if (this.porcentajeIva === undefined) {
+            throw new Error('Falta configurar el IVA.');
         }
-        params.set('numero', String(this.numero));
         params.set('porcentajeIva', String(this.porcentajeIva));
         const response = await fetch(`${this.baseUrl}?${params}`, {
             method: 'POST',

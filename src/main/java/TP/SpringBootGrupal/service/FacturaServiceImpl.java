@@ -3,6 +3,7 @@ package TP.SpringBootGrupal.service;
 import TP.SpringBootGrupal.dtos.Factura.FacturaEdicionDTO;
 import TP.SpringBootGrupal.Exceptions.RecursoNoEncontradoException;
 import TP.SpringBootGrupal.dtos.Factura.FacturaEdicionDTO;
+import TP.SpringBootGrupal.dtos.Factura.FacturaImpresionDTO;
 import TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO;
 import TP.SpringBootGrupal.dtos.Factura.FacturaRequestDTO;
 import TP.SpringBootGrupal.dtos.FacturaDetalle.FacturaDetalleRequestDTO;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 
@@ -51,7 +53,6 @@ public class FacturaServiceImpl implements FacturaService {
     @Transactional
     public FacturaReporteDTO save(
             FacturaRequestDTO dto,
-            Long numero,
             Long usuarioId,
             double porcentajeIva
     ) {
@@ -64,7 +65,6 @@ public class FacturaServiceImpl implements FacturaService {
 
         FacturaVenta factura = new FacturaVenta();
 
-        factura.setNumero(numero);
         factura.setFechaEmision(ahora);
         factura.setEstado("PENDIENTE");
         factura.setImporteCobrado(0);
@@ -75,6 +75,10 @@ public class FacturaServiceImpl implements FacturaService {
         factura.setUsuarioModificacion(usuario);
 
         aplicarDatos(dto, factura, porcentajeIva);
+
+        // El número se genera solo: siguiente al último del punto de venta
+        long ultimoNumero = facturaVentaRepository.obtenerUltimoNumero(dto.puntoVentaId());
+        factura.setNumero(ultimoNumero + 1);
 
         factura = facturaVentaRepository.save(factura);
 
@@ -121,6 +125,13 @@ public class FacturaServiceImpl implements FacturaService {
             double porcentajeIva
     ) {
         FacturaVenta factura = buscarFacturaActiva(id);
+
+        if (estaAutorizada(factura)) {
+            throw new IllegalStateException(
+                    "La factura " + factura.getNumero() + " está autorizada en ARCA y no se puede editar"
+            );
+        }
+
         Usuario usuario = buscarUsuario(usuarioId);
 
         aplicarDatos(dto, factura, porcentajeIva);
@@ -143,11 +154,15 @@ public class FacturaServiceImpl implements FacturaService {
             return;
         }
 
+        if (estaAutorizada(factura)) {
+            throw new IllegalStateException(
+                    "La factura " + factura.getNumero() + " está autorizada en ARCA: no se puede eliminar, solo anular"
+            );
+        }
+
+        // Baja lógica: la factura pendiente deja de aparecer en el listado
         Usuario usuario = buscarUsuario(usuarioId);
         Date ahora = new Date();
-
-        factura.setEstado("ANULADA");
-        factura.setFechaAnulacion(ahora);
 
         factura.setFechaBaja(ahora);
         factura.setUsuarioBaja(usuario);
@@ -156,6 +171,27 @@ public class FacturaServiceImpl implements FacturaService {
         factura.setUsuarioModificacion(usuario);
 
         facturaVentaRepository.save(factura);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public FacturaImpresionDTO findParaImpresion(Long id) {
+        FacturaVenta factura = facturaVentaRepository.findById(id)
+                .orElseThrow(() -> new RecursoNoEncontradoException(
+                        "No existe la factura con ID " + id
+                ));
+
+        if (!estaAutorizada(factura) || factura.getFechaBaja() != null) {
+            throw new IllegalStateException(
+                    "Solo se pueden imprimir facturas autorizadas en ARCA"
+            );
+        }
+
+        return FacturaImpresionDTO.toDTO(factura);
+    }
+
+    private boolean estaAutorizada(FacturaVenta factura) {
+        return "AUTORIZADA".equals(factura.getEstado());
     }
 
     @Override
@@ -391,13 +427,12 @@ public class FacturaServiceImpl implements FacturaService {
     @Override
     @Transactional(readOnly = true)
     public List<FacturaReporteDTO> findAllParaListado() {
-        List<FacturaReporteDTO> resultado = new ArrayList<>();
-
-        for (FacturaVenta factura : facturaVentaRepository.findAll()) {
-            resultado.add(FacturaReporteDTO.toDTO(factura));
-        }
-
-        return resultado;
+        // La última factura generada aparece primero; las eliminadas (baja lógica) no se muestran
+        return facturaVentaRepository.findAll().stream()
+                .filter(f -> f.getFechaBaja() == null || "ANULADA".equals(f.getEstado()))
+                .sorted(Comparator.comparing(FacturaVenta::getId).reversed())
+                .map(FacturaReporteDTO::toDTO)
+                .toList();
     }
 
     @Override
@@ -416,9 +451,21 @@ public class FacturaServiceImpl implements FacturaService {
             return FacturaReporteDTO.toDTO(factura);
         }
 
-        delete(id, usuarioId);
+        if (!estaAutorizada(factura)) {
+            throw new IllegalStateException(
+                    "Solo se pueden anular facturas autorizadas. Una pendiente se elimina"
+            );
+        }
 
+        Usuario usuario = buscarUsuario(usuarioId);
+        Date ahora = new Date();
+
+        factura.setEstado("ANULADA");
+        factura.setFechaAnulacion(ahora);
         factura.setObservaciones(observaciones);
+        factura.setFechaModificacion(ahora);
+        factura.setUsuarioModificacion(usuario);
+
         factura = facturaVentaRepository.save(factura);
 
         return FacturaReporteDTO.toDTO(factura);

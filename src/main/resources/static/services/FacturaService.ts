@@ -3,6 +3,7 @@ import type {
     FacturaReporteDTO,
     FacturaRequestDTO,
     FacturaEdicionDTO,
+    FacturaImpresionDTO,
     OpcionDTO,
     ClienteExplorerDTO,
     PrecioArticuloExplorerDTO,
@@ -15,18 +16,40 @@ export class FacturaService {
 
     private usuarioId?: number;
     private porcentajeIva?: number;
-    private numero?: number;
 
-    async obtenerClientes(): Promise<ClienteExplorerDTO[]> {
-        const response = await fetch(`${this.catalogosUrl}/clientes`);
+    private async obtenerJson<T>(url: string): Promise<T> {
+        const response = await fetch(url);
         await this.comprobarRespuesta(response);
         return await response.json();
     }
 
-    async obtenerPreciosArticulos(): Promise<PrecioArticuloExplorerDTO[]> {
-        const response = await fetch(`${this.catalogosUrl}/precios-articulos`);
-        await this.comprobarRespuesta(response);
-        return await response.json();
+    // Las búsquedas se hacen en el servidor: nunca se trae la tabla entera
+    buscarClientes(texto: string): Promise<ClienteExplorerDTO[]> {
+        const params = new URLSearchParams({ texto });
+        return this.obtenerJson(`${this.catalogosUrl}/clientes?${params}`);
+    }
+
+    obtenerCliente(id: number): Promise<ClienteExplorerDTO> {
+        return this.obtenerJson(`${this.catalogosUrl}/clientes/${id}`);
+    }
+
+    obtenerListasPrecio(): Promise<OpcionDTO[]> {
+        return this.obtenerJson(`${this.catalogosUrl}/listas-precio`);
+    }
+
+    buscarPreciosArticulos(
+        listaPrecioId: number,
+        texto: string
+    ): Promise<PrecioArticuloExplorerDTO[]> {
+        const params = new URLSearchParams({
+            listaPrecioId: String(listaPrecioId),
+            texto
+        });
+        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos?${params}`);
+    }
+
+    obtenerPrecioArticulo(id: number): Promise<PrecioArticuloExplorerDTO> {
+        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/${id}`);
     }
 
     async obtenerPuntosVenta(): Promise<OpcionDTO[]> {
@@ -49,8 +72,7 @@ export class FacturaService {
 
     configurar(
         usuarioId: number,
-        porcentajeIva: number,
-        numero?: number
+        porcentajeIva: number
     ): void {
         if (!Number.isInteger(usuarioId) || usuarioId <= 0) {
             throw new Error('Ingresá un ID de usuario válido.');
@@ -60,14 +82,8 @@ export class FacturaService {
             throw new Error('Ingresá un porcentaje de IVA válido.');
         }
 
-        if (numero !== undefined
-            && (!Number.isInteger(numero) || numero <= 0)) {
-            throw new Error('Ingresá un número de factura válido.');
-        }
-
         this.usuarioId = usuarioId;
         this.porcentajeIva = porcentajeIva;
-        this.numero = numero;
     }
 
     async obtenerFacturas(
@@ -95,6 +111,10 @@ export class FacturaService {
         });
     }
 
+    obtenerImpresion(id: number): Promise<FacturaImpresionDTO> {
+        return this.obtenerJson(`${this.baseUrl}/${id}/impresion`);
+    }
+
     async obtenerParaEdicion(id: number): Promise<FacturaEdicionDTO> {
         const response = await fetch(`${this.baseUrl}/${id}/edicion`);
 
@@ -108,11 +128,10 @@ export class FacturaService {
     ): Promise<FacturaReporteDTO> {
         const params = this.parametrosUsuario();
 
-        if (this.numero === undefined || this.porcentajeIva === undefined) {
-            throw new Error('Falta configurar número o IVA.');
+        if (this.porcentajeIva === undefined) {
+            throw new Error('Falta configurar el IVA.');
         }
 
-        params.set('numero', String(this.numero));
         params.set('porcentajeIva', String(this.porcentajeIva));
 
         const response = await fetch(`${this.baseUrl}?${params}`, {

@@ -1,6 +1,7 @@
 import type {
     FacturaDetalleRequestDTO,
     FacturaFiltrosDTO,
+    FacturaImpresionDTO,
     FacturaReporteDTO,
     FacturaRequestDTO,
     OpcionDTO,
@@ -10,12 +11,23 @@ import type {
 
 import { FacturaService } from './services/FacturaService.js';
 
+// Usuario que registra las operaciones (ya no se pide en pantalla)
+const USUARIO_OPERADOR_ID = 1;
+// Factura C (monotributo): ARCA no admite IVA discriminado, por eso siempre es 0
+const PORCENTAJE_IVA_FACTURA_C = 0;
+
 const api = new FacturaService();
 let renglones: FacturaDetalleRequestDTO[] = [];
 let facturaEnEdicionId: number | null = null;
-let preciosArticulos: PrecioArticuloExplorerDTO[] = [];
-let filtrarExplorer: () => void = () => {};
+// Precios ya elegidos, por ID: se usan para mostrar descripción y calcular el total
+const preciosElegidos = new Map<number, PrecioArticuloExplorerDTO>();
+let clienteSeleccionado: ClienteExplorerDTO | null = null;
+let buscarEnExplorer: () => void = () => {};
 let solicitudExplorer = 0;
+let facturasListado: FacturaReporteDTO[] = [];
+let paginaActual = 1;
+// ID de la última factura guardada: se resalta en el listado
+let ultimaGuardadaId: number | null = null;
 
 function elemento<T extends HTMLElement>(id: string): T {
     const encontrado = document.getElementById(id);
@@ -40,6 +52,10 @@ function numeroCampo(id: string): number {
     }
 
     return numero;
+}
+
+function moneda(importe: number): string {
+    return `$${importe.toFixed(2)}`;
 }
 
 function llenarOpciones(
@@ -69,19 +85,23 @@ function llenarOpciones(
     select.disabled = opciones.length === 0;
 }
 
+const SELECTS_CATALOGO = ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva', 'inputListaPrecio'];
+
 async function cargarOpciones(): Promise<void> {
     try {
-        const [puntosVenta, monedas, condicionesIva] = await Promise.all([
+        const [puntosVenta, monedas, condicionesIva, listasPrecio] = await Promise.all([
             api.obtenerPuntosVenta(),
             api.obtenerTiposMoneda(),
-            api.obtenerCondicionesIva()
+            api.obtenerCondicionesIva(),
+            api.obtenerListasPrecio()
         ]);
 
         llenarOpciones('inputPuntoVenta', puntosVenta, 'Seleccioná un punto de venta');
         llenarOpciones('inputMoneda', monedas, 'Seleccioná una moneda');
         llenarOpciones('inputCondicionIva', condicionesIva, 'Seleccioná una condición de IVA');
+        llenarOpciones('inputListaPrecio', listasPrecio, 'Seleccioná una lista de precios');
     } catch (error) {
-        for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) {
+        for (const id of SELECTS_CATALOGO) {
             const select = elemento<HTMLSelectElement>(id);
             const option = document.createElement('option');
             option.value = '';
@@ -94,14 +114,6 @@ async function cargarOpciones(): Promise<void> {
     }
 }
 
-function configurarOperacion(numero?: number): void {
-    api.configurar(
-        numeroCampo('inputUsuario'),
-        numeroCampo('inputPorcentajeIva'),
-        numero
-    );
-}
-
 async function ejecutar(accion: () => Promise<void>): Promise<void> {
     try {
         await accion();
@@ -110,6 +122,8 @@ async function ejecutar(accion: () => Promise<void>): Promise<void> {
         alert(error instanceof Error ? error.message : String(error));
     }
 }
+
+/* ---------- Listado de facturas con paginación ---------- */
 
 function leerFiltros(): FacturaFiltrosDTO {
     return {
@@ -123,26 +137,51 @@ function leerFiltros(): FacturaFiltrosDTO {
 }
 
 async function cargarListado(): Promise<void> {
-    const facturas = await api.obtenerFacturas(leerFiltros());
-    dibujarFacturas(facturas);
+    facturasListado = await api.obtenerFacturas(leerFiltros());
+    paginaActual = 1;
+    dibujarFacturas();
 }
 
-function dibujarFacturas(facturas: FacturaReporteDTO[]): void {
+function tamanioPagina(): number {
+    return Number(valor('selTamanioPagina')) || 10;
+}
+
+function crearBoton(texto: string, clase: string, accion: () => void): HTMLButtonElement {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.textContent = texto;
+    boton.className = clase;
+    boton.addEventListener('click', accion);
+    return boton;
+}
+
+function dibujarFacturas(): void {
+    const facturas = facturasListado;
     const tbody = elemento<HTMLTableSectionElement>('tbodyFacturas');
     tbody.replaceChildren();
 
     elemento('contadorFacturas').textContent =
         `${facturas.length} comprobante(s)`;
 
+    const porPagina = tamanioPagina();
+    const totalPaginas = Math.max(1, Math.ceil(facturas.length / porPagina));
+    paginaActual = Math.min(Math.max(paginaActual, 1), totalPaginas);
+
+    elemento('infoPagina').textContent = `Página ${paginaActual} de ${totalPaginas}`;
+    elemento<HTMLButtonElement>('btnPaginaAnterior').disabled = paginaActual <= 1;
+    elemento<HTMLButtonElement>('btnPaginaSiguiente').disabled = paginaActual >= totalPaginas;
+
     if (facturas.length === 0) {
-        const fila = tbody.insertRow();
-        const celda = fila.insertCell();
+        const celda = tbody.insertRow().insertCell();
         celda.colSpan = 8;
+        celda.className = 'texto-centro celda-vacia';
         celda.textContent = 'No hay facturas que coincidan con la búsqueda.';
         return;
     }
 
-    for (const factura of facturas) {
+    const inicio = (paginaActual - 1) * porPagina;
+
+    for (const factura of facturas.slice(inicio, inicio + porPagina)) {
         const fila = tbody.insertRow();
 
         const datos = [
@@ -150,73 +189,208 @@ function dibujarFacturas(facturas: FacturaReporteDTO[]): void {
             factura.fechaEmision.slice(0, 10),
             factura.clienteDenominacion,
             factura.condicionIva,
-            factura.puntoVentaDescripcion,
-            `$${factura.importeTotal.toFixed(2)}`,
-            factura.estado
+            factura.puntoVentaDescripcion
         ];
 
         for (const dato of datos) {
             fila.insertCell().textContent = dato;
         }
 
+        const total = fila.insertCell();
+        total.className = 'texto-derecha';
+        total.textContent = moneda(factura.importeTotal);
+
+        const estado = document.createElement('span');
+        estado.className = `estado-tag tag-${factura.estado.toLowerCase()}`;
+        estado.textContent = factura.estado;
+        fila.insertCell().appendChild(estado);
+
+        if (factura.id === ultimaGuardadaId) {
+            fila.classList.add('fila-nueva');
+            fila.title = 'Factura recién guardada';
+        }
+
         const acciones = fila.insertCell();
-        const editar = document.createElement('button');
-
-        editar.type = 'button';
-        editar.textContent = 'Editar';
-        editar.className = 'btn-chico btn-secundario';
-        editar.disabled = factura.estado === 'ANULADA';
-
-        editar.addEventListener('click', () => {
-            void ejecutar(() => editarFactura(factura.id));
-        });
-
-        const anular = document.createElement('button');
-        anular.textContent = 'Anular';
-        anular.className = 'btn-chico btn-anular';
-        anular.disabled = factura.estado === 'ANULADA';
-
-        anular.addEventListener('click', () => {
-            void ejecutar(async () => {
-                const motivo = prompt('Observación de la anulación:');
-
-                if (motivo === null) {
-                    return;
-                }
-
-                configurarOperacion();
-
-                await api.actualizarEstado(
-                    factura.id,
-                    'ANULADA',
-                    motivo
-                );
-
-                await cargarListado();
-            });
-        });
-
-        const eliminar = document.createElement('button');
-        eliminar.textContent = 'Eliminar (baja lógica)';
-        eliminar.className = 'btn-chico btn-borrar';
-        eliminar.disabled = factura.estado === 'ANULADA';
-
-        eliminar.addEventListener('click', () => {
-            void ejecutar(async () => {
-                if (!confirm(
-                    `¿Dar de baja la factura ${factura.numeroFactura}?`
-                )) {
-                    return;
-                }
-
-                configurarOperacion();
-                await api.eliminarFactura(factura.id);
-                await cargarListado();
-            });
-        });
-
-        acciones.append(editar, anular, eliminar);
+        acciones.className = 'celda-acciones';
+        acciones.append(...accionesSegunEstado(factura));
     }
+
+    tbody.querySelector('.fila-nueva')?.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * Acciones permitidas según el estado:
+ * - PENDIENTE: editar y eliminar (no se anula ni se imprime).
+ * - AUTORIZADA: anular e imprimir (no se edita ni se elimina).
+ * - ANULADA: ninguna.
+ */
+function accionesSegunEstado(factura: FacturaReporteDTO): HTMLButtonElement[] {
+    if (factura.estado === 'PENDIENTE') {
+        return [
+            crearBoton('Editar', 'btn-chico btn-secundario', () => {
+                void ejecutar(() => editarFactura(factura.id));
+            }),
+            crearBoton('Eliminar', 'btn-chico btn-borrar', () => {
+                void ejecutar(async () => {
+                    if (!confirm(`¿Eliminar la factura pendiente N° ${factura.numeroFactura}?`)) {
+                        return;
+                    }
+
+                    await api.eliminarFactura(factura.id);
+                    await cargarListado();
+                });
+            })
+        ];
+    }
+
+    if (factura.estado === 'AUTORIZADA') {
+        return [
+            crearBoton('Anular', 'btn-chico btn-anular', () => {
+                void ejecutar(async () => {
+                    const motivo = prompt(`Motivo de la anulación de la factura N° ${factura.numeroFactura}:`);
+
+                    if (motivo === null) {
+                        return;
+                    }
+
+                    await api.actualizarEstado(factura.id, 'ANULADA', motivo);
+                    await cargarListado();
+                });
+            }),
+            crearBoton('Imprimir', 'btn-chico btn-primario', () => {
+                // La ventana se abre en el mismo clic para que el navegador no la bloquee
+                const ventana = window.open('', '_blank');
+                void ejecutar(async () => {
+                    if (!ventana) {
+                        throw new Error('El navegador bloqueó la ventana de impresión. Permití ventanas emergentes.');
+                    }
+                    try {
+                        imprimirFactura(ventana, await api.obtenerImpresion(factura.id));
+                    } catch (error) {
+                        ventana.close();
+                        throw error;
+                    }
+                });
+            })
+        ];
+    }
+
+    return [];
+}
+
+/* ---------- Impresión de la factura autorizada ---------- */
+
+function escaparHtml(texto: string): string {
+    return texto.replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c] as string);
+}
+
+function fechaArgentina(iso: string): string {
+    const [anio, mes, dia] = iso.slice(0, 10).split('-');
+    return `${dia}/${mes}/${anio}`;
+}
+
+function imprimirFactura(ventana: Window, f: FacturaImpresionDTO): void {
+    const numero = `${String(f.puntoVentaNumero).padStart(4, '0')}-${String(f.numeroFactura).padStart(8, '0')}`;
+    const filas = f.detalles.map(d => `
+        <tr>
+            <td>${escaparHtml(d.descripcion ?? '')}</td>
+            <td class="num">${d.cantidad}</td>
+            <td class="num">${moneda(d.precioUnitario)}</td>
+            <td class="num">${d.porcentajeBonificacion}%</td>
+            <td class="num">${moneda(d.importeSubtotal)}</td>
+        </tr>`).join('');
+
+    ventana.document.write(`<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Factura C ${numero}</title>
+<style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 32px; }
+    .cabecera { display: flex; justify-content: space-between; border: 2px solid #1e293b; padding: 16px; }
+    .letra { font-size: 2.4rem; font-weight: 700; border: 2px solid #1e293b; padding: 4px 16px; height: fit-content; }
+    h1 { margin: 0 0 6px; font-size: 1.3rem; }
+    p { margin: 3px 0; }
+    .cliente { border: 1px solid #cbd5e1; padding: 12px 16px; margin: 14px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+    th { background: #f1f5f9; }
+    .num { text-align: right; }
+    .total { text-align: right; font-size: 1.3rem; font-weight: 700; margin-top: 14px; }
+    .cae { margin-top: 24px; border-top: 2px solid #1e293b; padding-top: 12px; text-align: right; }
+    @media print { button { display: none; } body { margin: 0; } }
+</style></head>
+<body>
+    <div class="cabecera">
+        <div>
+            <h1>FACTURA</h1>
+            <p><strong>N°:</strong> ${numero}</p>
+            <p><strong>Fecha de emisión:</strong> ${fechaArgentina(f.fechaEmision)}</p>
+            <p><strong>Punto de venta:</strong> ${escaparHtml(f.puntoVentaDescripcion)}</p>
+        </div>
+        <div class="letra">C</div>
+    </div>
+    <div class="cliente">
+        <p><strong>Cliente:</strong> ${escaparHtml(f.clienteDenominacion)}</p>
+        <p><strong>CUIT/CUIL:</strong> ${escaparHtml(f.clienteCuitCuil ?? '-')}</p>
+        <p><strong>Condición frente al IVA:</strong> ${escaparHtml(f.condicionIva)}</p>
+    </div>
+    <table>
+        <thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Bonif.</th><th class="num">Subtotal</th></tr></thead>
+        <tbody>${filas}</tbody>
+    </table>
+    <p class="total">Total: ${moneda(f.importeTotal)}</p>
+    <div class="cae">
+        <p><strong>CAE N°:</strong> ${escaparHtml(f.cae)}</p>
+        <p><strong>Fecha de vencimiento del CAE:</strong> ${fechaArgentina(f.caeFechaVencimiento)}</p>
+    </div>
+    <button onclick="window.print()">Imprimir</button>
+</body></html>`);
+    ventana.document.close();
+    ventana.focus();
+    ventana.print();
+}
+
+/* ---------- Renglones de la factura ---------- */
+
+function listaPrecioElegida(): number | null {
+    const texto = valor('inputListaPrecio');
+    return texto === '' ? null : Number(texto);
+}
+
+function subtotalRenglon(renglon: FacturaDetalleRequestDTO): number {
+    const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
+
+    if (!precio || !Number.isFinite(renglon.cantidad)) {
+        return 0;
+    }
+
+    const bonificacion = renglon.porcentajeBonificacion ?? 0;
+    return renglon.cantidad * precio.precioVenta * (1 - bonificacion / 100);
+}
+
+function actualizarTotales(): void {
+    const filas = elemento<HTMLTableSectionElement>('tbodyRenglones').rows;
+
+    renglones.forEach((renglon, indice) => {
+        const celda = filas[indice]?.querySelector('[data-subtotal]');
+        if (celda) {
+            celda.textContent = moneda(subtotalRenglon(renglon));
+        }
+    });
+
+    const bruto = renglones.reduce((suma, renglon) => suma + importeBruto(renglon), 0);
+    const total = renglones.reduce((suma, renglon) => suma + subtotalRenglon(renglon), 0);
+    const conArticulo = renglones.filter(r => preciosElegidos.has(r.listaPrecioArticuloId)).length;
+
+    elemento('cantidadArticulos').textContent = String(conArticulo);
+    elemento('subtotalFactura').textContent = moneda(bruto);
+    elemento('bonificacionFactura').textContent = `-${moneda(bruto - total)}`;
+    elemento('totalFactura').textContent = moneda(total);
+}
+
+function importeBruto(renglon: FacturaDetalleRequestDTO): number {
+    const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
+    return precio && Number.isFinite(renglon.cantidad) ? renglon.cantidad * precio.precioVenta : 0;
 }
 
 function agregarRenglon(): void {
@@ -229,12 +403,61 @@ function agregarRenglon(): void {
     dibujarRenglones();
 }
 
+function buscarArticulo(renglon: FacturaDetalleRequestDTO): void {
+    const listaPrecioId = listaPrecioElegida();
+
+    if (listaPrecioId === null) {
+        alert('Seleccioná primero una lista de precios.');
+        return;
+    }
+
+    const lista = elemento<HTMLSelectElement>('inputListaPrecio');
+    const nombreLista = lista.selectedOptions[0]?.textContent ?? '';
+
+    void abrirExplorer(
+        `Artículos de la lista "${nombreLista}"`,
+        ['Código', 'Artículo', 'Precio'],
+        texto => api.buscarPreciosArticulos(listaPrecioId, texto),
+        p => [p.articuloCodigo, p.articuloDenominacion, moneda(p.precioVenta)],
+        elegido => {
+            preciosElegidos.set(elegido.id, elegido);
+            renglon.listaPrecioArticuloId = elegido.id;
+            dibujarRenglones();
+        }
+    );
+}
+
 function dibujarRenglones(): void {
     const tbody = elemento<HTMLTableSectionElement>('tbodyRenglones');
     tbody.replaceChildren();
+    const sinLista = listaPrecioElegida() === null;
 
     renglones.forEach((renglon, indice) => {
         const fila = tbody.insertRow();
+        const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
+
+        const celdaArticulo = fila.insertCell();
+        const descripcion = document.createElement('span');
+        descripcion.className = 'precio-seleccionado';
+        descripcion.textContent = precio
+            ? `${precio.articuloCodigo} - ${precio.articuloDenominacion}`
+            : renglon.listaPrecioArticuloId > 0
+                ? `Precio #${renglon.listaPrecioArticuloId} no disponible. Seleccioná otro.`
+                : 'Sin artículo seleccionado';
+
+        const buscar = crearBoton(
+            precio ? 'Cambiar artículo' : 'Buscar artículo',
+            'btn-secundario btn-chico',
+            () => buscarArticulo(renglon)
+        );
+        buscar.dataset.buscarPrecio = '';
+        buscar.disabled = sinLista;
+        buscar.title = sinLista ? 'Elegí primero una lista de precios' : '';
+        celdaArticulo.append(descripcion, buscar);
+
+        const celdaPrecio = fila.insertCell();
+        celdaPrecio.className = 'texto-derecha';
+        celdaPrecio.textContent = precio ? moneda(precio.precioVenta) : '-';
 
         const crearInput = (
             valorInicial: number,
@@ -256,41 +479,12 @@ function dibujarRenglones(): void {
 
             input.addEventListener('input', () => {
                 actualizar(Number(input.value));
+                actualizarTotales();
             });
 
             fila.insertCell().appendChild(input);
         };
 
-        const celdaPrecio = fila.insertCell();
-        const descripcion = document.createElement('span');
-        descripcion.className = 'precio-seleccionado';
-        const precio = preciosArticulos.find(p => p.id === renglon.listaPrecioArticuloId);
-        descripcion.textContent = precio
-            ? `${precio.articuloCodigo} - ${precio.articuloDenominacion} | ${precio.listaPrecioDenominacion} | ${precio.precioVenta.toFixed(2)}`
-            : renglon.listaPrecioArticuloId > 0
-                ? `Precio #${renglon.listaPrecioArticuloId} no disponible. Seleccioná otro.`
-                : 'Sin artículo seleccionado';
-        const buscar = document.createElement('button');
-        buscar.type = 'button';
-        buscar.className = 'btn-secundario btn-chico';
-        buscar.dataset.buscarPrecio = '';
-        buscar.textContent = 'Buscar artículo y precio';
-        buscar.addEventListener('click', () => {
-            void abrirExplorer(
-                'Seleccionar artículo y lista de precios',
-                ['Código', 'Artículo', 'Lista de precios', 'Precio'],
-                async () => {
-                    preciosArticulos = await api.obtenerPreciosArticulos();
-                    return preciosArticulos;
-                },
-                p => [p.articuloCodigo, p.articuloDenominacion, p.listaPrecioDenominacion, p.precioVenta.toFixed(2)],
-                elegido => {
-                    renglon.listaPrecioArticuloId = elegido.id;
-                    dibujarRenglones();
-                }
-            );
-        });
-        celdaPrecio.append(descripcion, buscar);
         crearInput(renglon.cantidad, 0.01, n => renglon.cantidad = n);
 
         crearInput(
@@ -300,19 +494,39 @@ function dibujarRenglones(): void {
             100
         );
 
-        const quitar = document.createElement('button');
-        quitar.type = 'button';
-        quitar.textContent = 'Quitar';
-        quitar.className = 'btn-chico btn-borrar';
+        const celdaSubtotal = fila.insertCell();
+        celdaSubtotal.className = 'texto-derecha';
+        celdaSubtotal.dataset.subtotal = '';
 
-        quitar.addEventListener('click', () => {
+        const quitar = crearBoton('Quitar', 'btn-chico btn-borrar', () => {
             renglones.splice(indice, 1);
             dibujarRenglones();
         });
 
         fila.insertCell().appendChild(quitar);
     });
+
+    actualizarTotales();
 }
+
+function cambiarListaPrecio(evento: Event): void {
+    const select = evento.target as HTMLSelectElement;
+    const hayElegidos = renglones.some(r => r.listaPrecioArticuloId > 0);
+
+    if (hayElegidos && !confirm('Al cambiar la lista de precios se quitan los artículos elegidos. ¿Continuar?')) {
+        select.value = select.dataset.anterior ?? '';
+        return;
+    }
+
+    for (const renglon of renglones) {
+        renglon.listaPrecioArticuloId = 0;
+    }
+
+    select.dataset.anterior = select.value;
+    dibujarRenglones();
+}
+
+/* ---------- Alta / edición ---------- */
 
 function mostrarAlta(): void {
     facturaEnEdicionId = null;
@@ -323,9 +537,10 @@ function mostrarAlta(): void {
     elemento('tabNueva').classList.add('activo');
 
     elemento<HTMLFormElement>('formAltaFactura').reset();
+    elemento<HTMLSelectElement>('inputListaPrecio').dataset.anterior = '';
     seleccionarCliente(null);
 
-    elemento<HTMLInputElement>('inputNumero').readOnly = false;
+    elemento<HTMLInputElement>('inputNumero').value = 'Automático';
 
     elemento('btnGuardarFactura').textContent =
         'Confirmar y Guardar Factura';
@@ -346,35 +561,46 @@ async function mostrarListado(): Promise<void> {
 
 async function editarFactura(id: number): Promise<void> {
     const factura = await api.obtenerParaEdicion(id);
-    const [, clientes, precios] = await Promise.all([
-        cargarOpciones(), api.obtenerClientes(), api.obtenerPreciosArticulos()
+
+    // Solo se piden al servidor el cliente y los precios de ESTA factura
+    const [, cliente, precios] = await Promise.all([
+        cargarOpciones(),
+        factura.clienteId === null
+            ? Promise.resolve(null)
+            : api.obtenerCliente(factura.clienteId).catch(() => null),
+        Promise.all(factura.detalles.map(d =>
+            api.obtenerPrecioArticulo(d.listaPrecioArticuloId).catch(() => null)))
     ]);
-    preciosArticulos = precios;
+
+    for (const precio of precios) {
+        if (precio) {
+            preciosElegidos.set(precio.id, precio);
+        }
+    }
 
     mostrarAlta();
 
     facturaEnEdicionId = id;
 
-    const numero = elemento<HTMLInputElement>('inputNumero');
-    numero.value = String(factura.numeroFactura);
-    numero.readOnly = true;
+    elemento<HTMLInputElement>('inputNumero').value = String(factura.numeroFactura);
 
-    const cliente = clientes.find(c => c.id === factura.clienteId);
-    seleccionarCliente(cliente ?? null);
+    seleccionarCliente(cliente);
     if (factura.clienteId !== null && !cliente) {
         elemento<HTMLInputElement>('inputCliente').value = String(factura.clienteId);
         elemento<HTMLInputElement>('clienteDescripcion').value =
             `Cliente #${factura.clienteId} no disponible`;
     }
 
-    elemento<HTMLSelectElement>('inputCondicionIva').value =
-        String(factura.condicionIvaId);
+    elemento<HTMLSelectElement>('inputCondicionIva').value = String(factura.condicionIvaId);
+    elemento<HTMLSelectElement>('inputMoneda').value = String(factura.tipoMonedaId);
+    elemento<HTMLSelectElement>('inputPuntoVenta').value = String(factura.puntoVentaId);
 
-    elemento<HTMLSelectElement>('inputMoneda').value =
-        String(factura.tipoMonedaId);
-
-    elemento<HTMLSelectElement>('inputPuntoVenta').value =
-        String(factura.puntoVentaId);
+    const primerPrecio = precios.find(p => p !== null);
+    if (primerPrecio) {
+        const lista = elemento<HTMLSelectElement>('inputListaPrecio');
+        lista.value = String(primerPrecio.listaPrecioId);
+        lista.dataset.anterior = lista.value;
+    }
 
     renglones = factura.detalles.map(detalle => ({ ...detalle }));
 
@@ -384,23 +610,9 @@ async function editarFactura(id: number): Promise<void> {
         `Guardar cambios de factura ${factura.numeroFactura}`;
 }
 
-async function obtenerDocumentoArca(
-    clienteId: number | null
-): Promise<{ tipoDocumento: number; numeroDocumento: number }> {
-
-    if (clienteId === null) {
-        return {
-            tipoDocumento: 99,
-            numeroDocumento: 0
-        };
-    }
-
-    const clientes = await api.obtenerClientes();
-
-    const cliente = clientes.find(c => c.id === clienteId);
-
-    if (!cliente) {
-        throw new Error('No se encontró el cliente seleccionado.');
+function obtenerDocumentoArca(): { tipoDocumento: number; numeroDocumento: number } {
+    if (clienteSeleccionado === null) {
+        return { tipoDocumento: 99, numeroDocumento: 0 };
     }
 
     const tipoDocumento = numeroCampo('inputTipoDocumentoArca');
@@ -409,19 +621,13 @@ async function obtenerDocumentoArca(
         throw new Error('Seleccioná CUIT o CUIL para el cliente.');
     }
 
-    const documento = cliente.cuitCuil.trim()
-        .replace(/[-\s]/g, '');
+    const documento = clienteSeleccionado.cuitCuil.trim().replace(/[-\s]/g, '');
 
     if (!/^\d{11}$/.test(documento)) {
-        throw new Error(
-            'El CUIT/CUIL del cliente debe tener 11 dígitos.'
-        );
+        throw new Error('El CUIT/CUIL del cliente debe tener 11 dígitos.');
     }
 
-    return {
-        tipoDocumento,
-        numeroDocumento: Number(documento)
-    };
+    return { tipoDocumento, numeroDocumento: Number(documento) };
 }
 
 async function guardarFactura(): Promise<void> {
@@ -441,22 +647,12 @@ async function guardarFactura(): Promise<void> {
     for (const renglon of renglones) {
         if (!Number.isInteger(renglon.listaPrecioArticuloId)
             || renglon.listaPrecioArticuloId <= 0) {
-            throw new Error(
-                'Seleccioná un artículo y su lista de precios en cada renglón.'
-            );
+            throw new Error('Seleccioná un artículo en cada renglón.');
         }
     }
 
     const textoCliente = valor('inputCliente');
-
-    const clienteId = textoCliente === ''
-        ? null
-        : numeroCampo('inputCliente');
-
-    if (clienteId !== null
-        && (!Number.isInteger(clienteId) || clienteId <= 0)) {
-        throw new Error('El ID de cliente debe ser un entero positivo.');
-    }
+    const clienteId = textoCliente === '' ? null : numeroCampo('inputCliente');
 
     const dto: FacturaRequestDTO = {
         clienteId,
@@ -467,11 +663,9 @@ async function guardarFactura(): Promise<void> {
     };
 
     if (facturaEnEdicionId === null) {
-        const documento = await obtenerDocumentoArca(clienteId);
-
-        configurarOperacion(numeroCampo('inputNumero'));
-
+        const documento = obtenerDocumentoArca();
         const creada = await api.crearFactura(dto);
+        ultimaGuardadaId = creada.id;
 
         try {
             const autorizacion = await api.autorizarFactura(
@@ -485,41 +679,35 @@ async function guardarFactura(): Promise<void> {
             if (resultado.resultado === 'A') {
                 alert([
                     `Factura ${autorizacion.numeroComprobante} autorizada en homologación.`,
-                    `Total: $${creada.importeTotal.toFixed(2)}`,
+                    `Total: ${moneda(creada.importeTotal)}`,
                     `CAE: ${resultado.cae}`,
                     `Vencimiento: ${resultado.fechaVencimiento}`,
                     ...resultado.observaciones
                 ].join('\n'));
             } else {
                 alert([
-                    `La factura se guardó con ID ${creada.id}, pero ARCA la rechazó.`,
+                    `La factura N° ${creada.numeroFactura} se guardó, pero ARCA la rechazó.`,
                     'Quedó pendiente de autorización.',
                     ...resultado.observaciones
                 ].join('\n'));
             }
         } catch (error) {
-            const mensaje = error instanceof Error
-                ? error.message
-                : String(error);
+            const mensaje = error instanceof Error ? error.message : String(error);
 
             alert(
-                `La factura se guardó con ID ${creada.id}, ` +
+                `La factura N° ${creada.numeroFactura} se guardó, ` +
                 `pero no se pudo confirmar su autorización en ARCA.\n` +
                 `${mensaje}\n` +
-                'No vuelvas a crearla: primero revisaremos el resultado.'
+                'No vuelvas a crearla: queda pendiente de autorización.'
             );
         }
     } else {
-        configurarOperacion();
-
-        const actualizada = await api.actualizarFactura(
-            facturaEnEdicionId,
-            dto
-        );
+        const actualizada = await api.actualizarFactura(facturaEnEdicionId, dto);
+        ultimaGuardadaId = actualizada.id;
 
         alert(
             `Factura ${actualizada.numeroFactura} actualizada. ` +
-            `Total: $${actualizada.importeTotal.toFixed(2)}`
+            `Total: ${moneda(actualizada.importeTotal)}`
         );
     }
 
@@ -527,19 +715,21 @@ async function guardarFactura(): Promise<void> {
 }
 
 function seleccionarCliente(cliente: ClienteExplorerDTO | null): void {
+    clienteSeleccionado = cliente;
     elemento<HTMLInputElement>('inputCliente').value = cliente ? String(cliente.id) : '';
     elemento<HTMLInputElement>('clienteDescripcion').value =
         cliente?.denominacion ?? 'Consumidor final';
+    elemento<HTMLInputElement>('clienteDescripcion').title = cliente
+        ? `CUIT/CUIL: ${cliente.cuitCuil}`
+        : '';
 }
 
-function normalizarBusqueda(texto: string): string {
-    return texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-}
+/* ---------- Ventana de búsqueda: consulta al servidor al presionar Buscar ---------- */
 
 async function abrirExplorer<T>(
     titulo: string,
     columnas: string[],
-    cargar: () => Promise<T[]>,
+    buscar: (texto: string) => Promise<T[]>,
     celdas: (registro: T) => string[],
     seleccionar: (registro: T) => void
 ): Promise<void> {
@@ -548,70 +738,83 @@ async function abrirExplorer<T>(
     const encabezado = elemento('explorerColumnas');
     const tbody = elemento<HTMLTableSectionElement>('explorerFilas');
     const estado = elemento('explorerEstado');
-    const solicitud = ++solicitudExplorer;
+    const boton = elemento<HTMLButtonElement>('btnExplorerBuscar');
+
     elemento('explorerTitulo').textContent = titulo;
     busqueda.value = '';
-    busqueda.disabled = true;
     encabezado.replaceChildren();
     tbody.replaceChildren();
-    estado.textContent = 'Cargando...';
-    filtrarExplorer = () => {};
-    for (const nombre of [...columnas, 'Acción']) {
+    estado.textContent = 'Escribí un texto (o dejalo vacío) y presioná Buscar. Se muestran hasta 20 resultados.';
+
+    for (const nombre of [...columnas, '']) {
         const th = document.createElement('th');
         th.scope = 'col';
         th.textContent = nombre;
         encabezado.appendChild(th);
     }
-    dialog.showModal();
-    try {
-        const registros = await cargar();
-        if (solicitud !== solicitudExplorer || !dialog.open) return;
-        filtrarExplorer = () => {
-            const filtro = normalizarBusqueda(busqueda.value);
-            const encontrados = registros.filter(registro =>
-                normalizarBusqueda(celdas(registro).join(' ')).includes(filtro));
+
+    buscarEnExplorer = () => {
+        void (async () => {
+            const solicitud = ++solicitudExplorer;
+            boton.disabled = true;
+            estado.textContent = 'Buscando...';
             tbody.replaceChildren();
-            estado.textContent = `${encontrados.length} resultado(s)`;
-            if (encontrados.length === 0) {
-                const celda = tbody.insertRow().insertCell();
-                celda.colSpan = columnas.length + 1;
-                celda.textContent = 'No hay resultados para la búsqueda.';
+
+            try {
+                const encontrados = await buscar(busqueda.value.trim());
+                if (solicitud !== solicitudExplorer || !dialog.open) return;
+
+                estado.textContent = `${encontrados.length} resultado(s)`;
+
+                if (encontrados.length === 0) {
+                    const celda = tbody.insertRow().insertCell();
+                    celda.colSpan = columnas.length + 1;
+                    celda.className = 'explorer-vacio';
+                    celda.textContent = 'No hay resultados para la búsqueda.';
+                }
+
+                for (const registro of encontrados) {
+                    const fila = tbody.insertRow();
+                    for (const texto of celdas(registro)) fila.insertCell().textContent = texto;
+                    fila.insertCell().appendChild(crearBoton('Seleccionar', 'btn-primario btn-chico', () => {
+                        seleccionar(registro);
+                        dialog.close();
+                    }));
+                }
+            } catch (error) {
+                if (solicitud !== solicitudExplorer || !dialog.open) return;
+                estado.textContent = 'No se pudieron cargar los datos. Volvé a intentar.';
+                console.error(error);
+            } finally {
+                boton.disabled = false;
             }
-            for (const registro of encontrados) {
-                const fila = tbody.insertRow();
-                for (const texto of celdas(registro)) fila.insertCell().textContent = texto;
-                const boton = document.createElement('button');
-                boton.type = 'button';
-                boton.className = 'btn-primario btn-chico';
-                boton.textContent = 'Seleccionar';
-                boton.addEventListener('click', () => {
-                    seleccionar(registro);
-                    dialog.close();
-                });
-                fila.insertCell().appendChild(boton);
-            }
-        };
-        busqueda.disabled = false;
-        filtrarExplorer();
-        busqueda.focus();
-    } catch (error) {
-        if (solicitud !== solicitudExplorer || !dialog.open) return;
-        estado.textContent = 'No se pudieron cargar los datos. Cerrá la ventana y volvé a intentar.';
-        console.error(error);
-    }
+        })();
+    };
+
+    dialog.showModal();
+    busqueda.focus();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    api.configurar(USUARIO_OPERADOR_ID, PORCENTAJE_IVA_FACTURA_C);
+
     elemento('btnBuscarCliente').addEventListener('click', () => {
         void abrirExplorer(
-            'Seleccionar cliente', ['CUIT/CUIL', 'Denominación'],
-            () => api.obtenerClientes(),
+            'Seleccionar cliente', ['CUIT/CUIL', 'Razón social'],
+            texto => api.buscarClientes(texto),
             cliente => [cliente.cuitCuil, cliente.denominacion],
             seleccionarCliente
         );
     });
     elemento('btnQuitarCliente').addEventListener('click', () => seleccionarCliente(null));
-    elemento('explorerBusqueda').addEventListener('input', () => filtrarExplorer());
+
+    elemento('btnExplorerBuscar').addEventListener('click', () => buscarEnExplorer());
+    elemento('explorerBusqueda').addEventListener('keydown', evento => {
+        if (evento.key === 'Enter') {
+            evento.preventDefault();
+            buscarEnExplorer();
+        }
+    });
     elemento('btnCerrarExplorer').addEventListener('click', () => {
         elemento<HTMLDialogElement>('explorerDialog').close();
     });
@@ -623,8 +826,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     elemento('explorerDialog').addEventListener('close', () => {
         solicitudExplorer++;
-        filtrarExplorer = () => {};
+        buscarEnExplorer = () => {};
     });
+
+    elemento('inputListaPrecio').addEventListener('change', cambiarListaPrecio);
 
     elemento('tabNueva').addEventListener('click', () => {
         void ejecutar(async () => {
@@ -641,7 +846,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elemento('btnSumarRenglon').addEventListener('click', agregarRenglon);
 
+    elemento('selTamanioPagina').addEventListener('change', () => {
+        paginaActual = 1;
+        dibujarFacturas();
+    });
+    elemento('btnPaginaAnterior').addEventListener('click', () => {
+        paginaActual--;
+        dibujarFacturas();
+    });
+    elemento('btnPaginaSiguiente').addEventListener('click', () => {
+        paginaActual++;
+        dibujarFacturas();
+    });
+
     elemento('btnAplicarFiltros').addEventListener('click', () => {
+        ultimaGuardadaId = null;
         void ejecutar(cargarListado);
     });
 

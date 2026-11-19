@@ -48,3 +48,9 @@ playwright-report/
 *.pem
 *.pfx
 *.p12
+### Resultados de Playwright ###
+test-results/
+playwright-report/
+
+### Configuración local con contraseñas (no subir) ###
+config-local.properties
