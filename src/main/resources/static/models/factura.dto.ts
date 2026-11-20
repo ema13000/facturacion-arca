@@ -29,6 +29,7 @@ export interface FacturaReporteDTO {
     clienteNombreCompleto: string;
     condicionIvaId: number;
     informadaArca: boolean;
+    motivoAnulacion: string | null;
     tipoComprobante?: string;
 }
 
@@ -95,6 +96,7 @@ export interface FacturaImpresionDTO {
     importeTotal: number;
     cae: string;
     caeFechaVencimiento: string;
+    observaciones: string | null;
     detalles: {
         descripcion: string;
         cantidad: number;

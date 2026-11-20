@@ -17,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,22 +57,23 @@ class DatosInicialesTests {
     }
 
     @Test
-    void conLaBaseVaciaCargaVeinteClientesDistintosYCompletos() {
+    void conLaBaseVaciaCargaVeinticincoClientesConElCuitDeSuCondicion() {
         cargador().run();
 
         List<Cliente> guardados = clientesGuardados(25);
-        var cuits = new HashSet<String>();
+        var correos = new HashSet<String>();
+        var cuitsPorCondicion = Map.of(1, "27381112220", 5, "20231813285", 6, "20417364774");
         for (Cliente cliente : guardados) {
-            cuits.add(cliente.getCuit());
-            assertEquals(11, cliente.getCuit().length());
+            assertTrue(cuitValido(cliente.getCuit()));
+            int codigo = cliente.getCondicionIva().getCodigoAfip();
+            assertEquals(cuitsPorCondicion.get(codigo), cliente.getCuit(), cliente.getDenominacion());
             assertFalse(cliente.getDenominacion().isBlank());
             assertFalse(cliente.getNombre().isBlank());
             assertFalse(cliente.getApellido().isBlank());
-            assertNotNull(cliente.getContacto());
+            assertTrue(correos.add(cliente.getContacto().getEmail()));
             assertNotNull(cliente.getDomicilio());
         }
-        assertEquals(25, cuits.size());
-        assertTrue(guardados.stream().allMatch(c -> c.getCondicionIva() != null));
+        assertEquals(14, guardados.stream().filter(c -> c.getCondicionIva().getCodigoAfip() == 1).count());
     }
 
     @Test
@@ -81,13 +83,33 @@ class DatosInicialesTests {
             existente.setCuit(datos[0]);
             existente.setNombre(datos[2]);
             existente.setCondicionIva(new CondicionIva());
-            when(clientes.findFirstByCuit(datos[0])).thenReturn(Optional.of(existente));
+            when(clientes.findFirstByDenominacionAndCuit(datos[1], datos[0])).thenReturn(Optional.of(existente));
         }
 
         cargador().run();
 
         List<Cliente> guardados = clientesGuardados(20);
         assertTrue(guardados.stream().noneMatch(c -> c.getCuit().equals("20123456786")));
+    }
+
+    @Test
+    void idsDePruebaDistintosNoSeDuplicanAunqueCompartanElCuit() {
+        for (int indice : new int[]{3, 21}) {
+            String[] datos = DatosIniciales.CLIENTES_PRUEBA.get(indice - 1);
+            var existente = new Cliente();
+            existente.setDenominacion(datos[1]);
+            existente.setNombre(datos[2]);
+            existente.setApellido(datos[3]);
+            existente.setCuit("27381112220");
+            existente.setCondicionIva(condiciones.findFirstByCodigoAfip(1).orElseThrow());
+            when(clientes.findFirstByDenominacionAndContacto_Email(datos[1], "cliente" + indice + "@ejemplo.com"))
+                    .thenReturn(Optional.of(existente));
+        }
+
+        cargador().run();
+
+        var guardados = clientesGuardados(23);
+        assertTrue(guardados.stream().noneMatch(c -> List.of("Distribuidora del Sur S.A.", "Sofía Indovino").contains(c.getDenominacion())));
     }
 
     @Test
@@ -105,7 +127,7 @@ class DatosInicialesTests {
         assertEquals(1, categoria(guardados, "Sofía", "Indovino"));
         assertEquals(5, categoria(guardados, "Juan Cruz", "Grivel"));
         assertEquals(6, categoria(guardados, "Emanuel", "Mateo"));
-        assertEquals(4, categoria(guardados, "Enzo", "Mellimaci"));
+        assertEquals(1, categoria(guardados, "Enzo", "Mellimaci"));
         assertEquals(1, categoria(guardados, "Juan Sebastián", "Cabrera"));
     }
 
@@ -114,7 +136,7 @@ class DatosInicialesTests {
         Cliente existente = new Cliente();
         existente.setCuit("20123456786");
         existente.setNombre("Juan");
-        when(clientes.findFirstByCuit(anyString())).thenReturn(Optional.of(existente));
+        when(clientes.findFirstByDenominacionAndCuit("Librería Centro", "20123456786")).thenReturn(Optional.of(existente));
 
         cargador().run();
 

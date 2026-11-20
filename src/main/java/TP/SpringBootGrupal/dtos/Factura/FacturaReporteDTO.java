@@ -37,6 +37,7 @@ public class FacturaReporteDTO {
     private Long condicionIvaId;
     private boolean informadaArca;
     private String codigoMoneda;
+    private String motivoAnulacion;
 
     public static FacturaReporteDTO toDTO(FacturaVenta factura) {
         var cliente = factura.getCliente();
@@ -47,7 +48,7 @@ public class FacturaReporteDTO {
                 .map(String::strip)
                 .filter(nombre -> !nombre.isEmpty())
                 .collect(Collectors.joining(" "));
-        boolean informadaArca = tieneValor(factura.getResultadoAfip()) || tieneValor(factura.getCae());
+        boolean informadaArca = "AUTORIZADA".equals(factura.getEstado()) || "ANULADA".equals(factura.getEstado());
         String moneda = factura.getTipoMoneda() == null ? null : factura.getTipoMoneda().getCodigoAfip();
 
         return new FacturaReporteDTO(
@@ -66,11 +67,28 @@ public class FacturaReporteDTO {
                 nombreCompleto,
                 factura.getCondicionIva().getId(),
                 informadaArca,
-                moneda
+                moneda,
+                motivoAnulacion(factura)
         );
     }
 
-    private static boolean tieneValor(String valor) {
-        return valor != null && !valor.isBlank();
+    private static String motivoAnulacion(FacturaVenta factura) {
+        if (!"ANULADA".equals(factura.getEstado())) return null;
+        String motivo = factura.getMotivoAnulacion();
+        if (motivo != null) return motivo.isBlank() ? null : motivo;
+
+        // Antes el motivo se guardaba al final de las observaciones.
+        String observaciones = factura.getObservaciones();
+        if (observaciones == null) return null;
+
+        String prefijo = "Anulada: ";
+        String separador = " | " + prefijo;
+        int inicio = observaciones.indexOf(separador);
+        if (inicio >= 0) {
+            motivo = observaciones.substring(inicio + separador.length()).strip();
+        } else if (observaciones.startsWith(prefijo)) {
+            motivo = observaciones.substring(prefijo.length()).strip();
+        }
+        return motivo == null || motivo.isEmpty() || "sin motivo".equals(motivo) ? null : motivo;
     }
 }

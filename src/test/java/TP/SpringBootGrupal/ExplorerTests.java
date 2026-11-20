@@ -200,10 +200,14 @@ class ExplorerTests {
         assertEquals("Juan Pérez", datos.getClienteNombreCompleto());
         assertFalse(datos.isInformadaArca());
 
+        factura.setEstado("PENDIENTE");
         factura.setResultadoAfip("R");
-        assertTrue(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).isInformadaArca());
+        assertFalse(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).isInformadaArca());
+        factura.setEstado("AUTORIZADA");
         factura.setResultadoAfip(null);
         factura.setCae("12345678901234");
+        assertTrue(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).isInformadaArca());
+        factura.setEstado("ANULADA");
         assertTrue(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).isInformadaArca());
     }
 
@@ -226,7 +230,7 @@ class ExplorerTests {
     @Test
     void noDuplicaClientesDePruebaQueYaExisten() {
         when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
-        when(clientes.findFirstByCuit(anyString())).thenAnswer(i -> {
+        when(clientes.findFirstByDenominacionAndCuit(anyString(), anyString())).thenAnswer(i -> {
             Cliente existente = new Cliente();
             existente.setNombre("Ya cargado");
             return Optional.of(existente);
@@ -258,7 +262,7 @@ class ExplorerTests {
             existente.setApellido("Nombre");
         }
         when(clientes.count()).thenReturn(5L);
-        when(clientes.findFirstByCuit("20123456786")).thenReturn(Optional.of(existente));
+        when(clientes.findFirstByDenominacionAndCuit("Librería Centro", "20123456786")).thenReturn(Optional.of(existente));
         new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones).run();
         if (yaTieneNombre) {
             verify(clientes, never()).save(any(Cliente.class));

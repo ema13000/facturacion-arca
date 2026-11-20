@@ -21,7 +21,8 @@ public record FacturaImpresionDTO(
         List<Renglon> detalles,
         String tipoComprobante,
         double importeNeto,
-        double importeIva
+        double importeIva,
+        String observaciones
 ) {
     public record Renglon(
             String descripcion,
@@ -55,7 +56,8 @@ public record FacturaImpresionDTO(
                         .toList(),
                 TP.SpringBootGrupal.service.TipoComprobante.normalizar(factura.getTipoComprobante()),
                 redondear(factura.getDetalles().stream().mapToDouble(d -> d.getImporteNeto()).sum()),
-                redondear(factura.getDetalles().stream().mapToDouble(d -> d.getImporteIva()).sum())
+                redondear(factura.getDetalles().stream().mapToDouble(d -> d.getImporteIva()).sum()),
+                factura.getObservaciones()
         );
     }
 

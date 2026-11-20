@@ -24,4 +24,8 @@ public interface ClienteRepository extends JpaRepository<Cliente, Long> {
     List<Cliente> buscar(@Param("texto") String texto, Pageable pagina);
 
     java.util.Optional<Cliente> findFirstByCuit(String cuit);
+
+    java.util.Optional<Cliente> findFirstByDenominacionAndCuit(String denominacion, String cuit);
+
+    java.util.Optional<Cliente> findFirstByDenominacionAndContacto_Email(String denominacion, String email);
 }

@@ -110,6 +110,7 @@ const ICONOS = {
     eliminar: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
     anular: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
     verFactura: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
+    motivo: '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 8h8m-8 4h5"/>',
     quitar: '<path d="M18 6 6 18M6 6l12 12"/>',
     enviar: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'
 };
@@ -340,7 +341,7 @@ function dibujarFacturas() {
  * Acciones permitidas según el estado:
  * - PENDIENTE: editar y eliminar (no se anula ni se imprime).
  * - AUTORIZADA: anular e imprimir (no se edita ni se elimina).
- * - ANULADA: ninguna.
+ * - ANULADA: consultar el motivo de anulación.
  */
 function accionesSegunEstado(factura) {
     if (factura.estado === 'PENDIENTE') {
@@ -365,16 +366,7 @@ function accionesSegunEstado(factura) {
     }
     if (factura.estado === 'AUTORIZADA') {
         return [
-            botonIcono('Anular', 'anular', 'icono-ambar', () => {
-                void ejecutar(async () => {
-                    const motivo = prompt(`Motivo de la anulación de la factura N° ${factura.numeroFactura}:`);
-                    if (motivo === null) {
-                        return;
-                    }
-                    await api.actualizarEstado(factura.id, 'ANULADA', motivo);
-                    await cargarListado();
-                });
-            }, 'Anular factura'),
+            botonIcono('Anular', 'anular', 'icono-ambar', () => abrirAnulacion(factura), 'Anular factura'),
             botonIcono('Ver factura', 'verFactura', 'icono-indigo', () => {
                 // La ventana se abre en el mismo clic para que el navegador no la bloquee
                 const ventana = window.open('', '_blank');
@@ -393,7 +385,52 @@ function accionesSegunEstado(factura) {
             }, 'Ver factura autorizada y opciones de impresión')
         ];
     }
+    if (factura.estado === 'ANULADA') {
+        return [botonIcono('Ver motivo de anulación', 'motivo', 'icono-ambar', () => {
+                mostrarAviso('aviso', 'Motivo de anulación', factura.motivoAnulacion || 'No se registró un motivo.');
+            })];
+    }
     return [];
+}
+function abrirAnulacion(factura) {
+    const dialogo = elemento('anularDialog');
+    const formulario = elemento('anularForm');
+    const motivo = elemento('anularMotivo');
+    const error = elemento('anularError');
+    const cancelar = elemento('btnCancelarAnular');
+    const confirmar = elemento('btnConfirmarAnular');
+    elemento('anularTitulo').textContent = `Anular factura n.º ${factura.numeroFactura}`;
+    formulario.reset();
+    error.textContent = '';
+    cancelar.onclick = () => dialogo.close();
+    motivo.oninput = () => { error.textContent = ''; };
+    dialogo.oncancel = evento => {
+        if (confirmar.disabled)
+            evento.preventDefault();
+    };
+    formulario.onsubmit = evento => {
+        evento.preventDefault();
+        if (confirmar.disabled)
+            return;
+        const texto = motivo.value.trim();
+        if (!texto) {
+            error.textContent = 'Ingresá el motivo de anulación.';
+            motivo.focus();
+            return;
+        }
+        confirmar.disabled = cancelar.disabled = true;
+        void ejecutar(async () => {
+            await api.actualizarEstado(factura.id, 'ANULADA', texto);
+            dialogo.close();
+            mostrarAviso('exito', 'Factura anulada', 'Podés consultar el motivo desde el listado.');
+            void ejecutar(cargarListado);
+        }, () => {
+            error.textContent = 'No se pudo anular la factura. Volvé a intentar.';
+        }).finally(() => {
+            confirmar.disabled = cancelar.disabled = false;
+        });
+    };
+    dialogo.showModal();
 }
 /* ---------- Impresión de la factura autorizada ---------- */
 function escaparHtml(texto) {
@@ -436,6 +473,8 @@ function mostrarFactura(ventana, f) {
     .num { text-align: right; }
     .iva { text-align: right; }
     .total { text-align: right; font-size: 1.3rem; font-weight: 700; margin-top: 14px; }
+    .observaciones { margin: 16px 0; overflow-wrap: anywhere; }
+    .observaciones p { white-space: pre-wrap; }
     .cae { margin-top: 24px; border-top: 2px solid #1e293b; padding-top: 12px; text-align: right; }
     .acciones-factura { display: flex; justify-content: flex-end; margin: 0 0 16px; }
     .btn-primario {
@@ -479,6 +518,11 @@ function mostrarFactura(ventana, f) {
     </table>
     ${lineasIva}
     <p class="total">Total: ${moneda(f.importeTotal)}</p>
+    ${f.observaciones?.trim() ? `
+    <section class="observaciones">
+        <strong>Observaciones</strong>
+        <p>${escaparHtml(f.observaciones)}</p>
+    </section>` : ''}
     <div class="cae">
         <p><strong>CAE N°:</strong> ${escaparHtml(f.cae)}</p>
         <p><strong>Fecha de vencimiento del CAE:</strong> ${fechaArgentina(f.caeFechaVencimiento)}</p>

@@ -32,7 +32,7 @@ class FacturaPdfTests {
                 7L, 25L, 3, "Casa central", fecha(2026, 11, 10),
                 cliente, cuit, "Consumidor Final", 1500.0, cae, vencimiento,
                 List.of(new FacturaImpresionDTO.Renglon("Cuaderno A4", 2, 750.0, 0, 1500.0)),
-                "C", 1500.0, 0.0
+                "C", 1500.0, 0.0, "Pago contado\nEntregar por la tarde"
         );
     }
 
@@ -59,6 +59,9 @@ class FacturaPdfTests {
         assertTrue(contenido.contains("0003-00000025"), contenido);
         assertTrue(contenido.contains("Librería Centro"), contenido);
         assertTrue(contenido.contains("Cuaderno A4"), contenido);
+        assertTrue(contenido.contains("Observaciones"), contenido);
+        assertTrue(contenido.contains("Pago contado"), contenido);
+        assertTrue(contenido.contains("Entregar por la tarde"), contenido);
     }
 
     @Test
@@ -110,11 +113,12 @@ class FacturaPdfTests {
         var facturaA = new FacturaImpresionDTO(base.id(), base.numeroFactura(), base.puntoVentaNumero(),
                 base.puntoVentaDescripcion(), base.fechaEmision(), base.clienteDenominacion(),
                 base.clienteCuit(), "IVA Responsable Inscripto", 1210.0, base.cae(),
-                base.caeFechaVencimiento(), base.detalles(), "A", 1000.0, 210.0);
+                base.caeFechaVencimiento(), base.detalles(), "A", 1000.0, 210.0, null);
 
         String contenido = texto(generador.generar(facturaA));
 
         assertTrue(contenido.contains("FACTURA A"), contenido);
+        assertFalse(contenido.contains("Observaciones"), contenido);
         assertTrue(contenido.contains("Neto gravado: $1,000.00"), contenido);
         assertTrue(contenido.contains("IVA 21%: $210.00"), contenido);
         assertEquals("factura-A-0003-00000025.pdf", FacturaPdfGenerador.nombreArchivo(facturaA));

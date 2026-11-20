@@ -176,9 +176,25 @@ class ComprobanteDatosTests {
         factura.setPuntoVenta(puntos.findById(1L).orElseThrow());
         when(facturas.findById(5L)).thenReturn(Optional.of(factura));
 
-        servicio.anular(5L, 1L, "Error en el importe");
+        assertEquals("Pago contado", servicio.findParaImpresion(5L).observaciones());
+        var resultado = servicio.anular(5L, 1L, " Error en el importe ");
 
-        assertEquals("Pago contado | Anulada: Error en el importe", factura.getObservaciones());
+        assertEquals("Pago contado", factura.getObservaciones());
+        assertEquals("Error en el importe", resultado.getMotivoAnulacion());
+    }
+
+    @Test
+    void sePuedeLeerElMotivoDeLasFacturasAnuladasAntesDelCambio() {
+        var factura = new FacturaVenta();
+        factura.setEstado("ANULADA");
+        factura.setPuntoVenta(puntos.findById(1L).orElseThrow());
+        factura.setCondicionIva(condiciones.findById(1L).orElseThrow());
+        factura.setObservaciones("Pago contado | Anulada: Error en el importe");
+        assertEquals("Error en el importe",
+                TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).getMotivoAnulacion());
+
+        factura.setObservaciones("Anulada: sin motivo");
+        assertNull(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).getMotivoAnulacion());
     }
 
     // ---------- Listas Minorista y Mayorista ----------

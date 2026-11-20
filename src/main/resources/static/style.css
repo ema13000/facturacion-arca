@@ -763,7 +763,7 @@ tr.fila-nueva td:first-child {
     display: none;
 }
 
-.aviso-contenido h2 {
+.aviso-resultado h2 {
     margin: 0 0 5px;
     font-size: 1.1rem;
 }
@@ -772,13 +772,30 @@ tr.fila-nueva td:first-child {
     margin: 0;
     color: #475569;
     line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .aviso-acciones {
     display: flex;
     justify-content: flex-end;
+    gap: 10px;
     margin-top: 20px;
 }
+
+.anular-campo {
+    display: grid;
+    gap: 6px;
+    margin-top: 16px;
+}
+
+.anular-error {
+    margin: 0;
+    color: var(--rojo);
+    font-size: .85rem;
+}
+
+.anular-error:empty { display: none; }
 
 /* ---------- Ventana de búsqueda ---------- */
 

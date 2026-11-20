@@ -551,15 +551,16 @@ public class FacturaServiceImpl implements FacturaService {
             );
         }
 
+        String motivo = observaciones == null ? "" : observaciones.strip();
+        if (motivo.length() > MAXIMO_OBSERVACIONES) {
+            throw new IllegalArgumentException("El motivo de anulación puede tener hasta 500 caracteres");
+        }
         Usuario usuario = buscarUsuario(usuarioId);
         Date ahora = new Date();
 
         factura.setEstado("ANULADA");
         factura.setFechaAnulacion(ahora);
-        String motivo = "Anulada: " + (observaciones == null || observaciones.isBlank() ? "sin motivo" : observaciones.trim());
-        factura.setObservaciones(factura.getObservaciones() == null || factura.getObservaciones().isBlank()
-                ? motivo
-                : factura.getObservaciones() + " | " + motivo);
+        factura.setMotivoAnulacion(motivo);
         factura.setFechaModificacion(ahora);
         factura.setUsuarioModificacion(usuario);
 

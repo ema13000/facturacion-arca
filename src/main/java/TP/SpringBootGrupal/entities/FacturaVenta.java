@@ -56,7 +56,10 @@ public class FacturaVenta extends AuditoriaApp {
     @Column(nullable = false)
     private String estado;
     private Date fechaAnulacion;
+    @Column(length = 500)
     private String observaciones;
+    @Column(length = 500)
+    private String motivoAnulacion;
 
     // Letra del comprobante: A, B o C (las facturas viejas quedan en null = C)
     private String tipoComprobante;

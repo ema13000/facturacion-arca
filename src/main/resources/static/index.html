@@ -6,7 +6,7 @@
     <title>Sistema de Facturación</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <link rel="stylesheet" href="./style.css?v=13">
+    <link rel="stylesheet" href="./style.css?v=14">
 </head>
 <body>
 
@@ -98,7 +98,7 @@
                     <input type="number" id="txtMontoMinimo" min="0" step="0.01">
                 </div>
                 <div class="campo">
-                    <label for="selFiltroArca">Envío a ARCA</label>
+                    <label for="selFiltroArca">Informadas con ARCA</label>
                     <select id="selFiltroArca">
                         <option value="">Todas</option>
                         <option value="informadas">Informadas</option>
@@ -325,6 +325,21 @@
     </div>
 </dialog>
 
+<dialog id="anularDialog" class="aviso-resultado" aria-labelledby="anularTitulo">
+    <form id="anularForm">
+        <h2 id="anularTitulo">Anular factura</h2>
+        <div class="anular-campo">
+            <label for="anularMotivo">Motivo de anulación</label>
+            <textarea id="anularMotivo" rows="3" maxlength="500" required autofocus></textarea>
+            <p id="anularError" class="anular-error" aria-live="polite"></p>
+        </div>
+        <div class="aviso-acciones">
+            <button type="button" id="btnCancelarAnular" class="btn-secundario">Cancelar</button>
+            <button type="submit" id="btnConfirmarAnular" class="btn-primario">Anular factura</button>
+        </div>
+    </form>
+</dialog>
+
 <dialog id="avisoResultado" class="aviso-resultado" aria-labelledby="avisoTitulo" aria-describedby="avisoDetalle">
     <div class="aviso-contenido">
         <span class="aviso-icono" aria-hidden="true">
@@ -403,6 +418,6 @@
     </div>
 </dialog>
 
-<script type="module" src="./dist/app.js?v=13"></script>
+<script type="module" src="./dist/app.js?v=14"></script>
 </body>
 </html>

@@ -67,11 +67,15 @@ export class FacturaService {
                 : [f.clienteDenominacion, f.clienteNombreCompleto]
                     .some(nombre => nombre?.toLocaleLowerCase('es-AR').includes(cliente)));
             const fecha = f.fechaEmision.slice(0, 10);
+            const coincideArca = filtros.informadaArca === undefined
+                || (filtros.informadaArca
+                    ? f.estado === 'AUTORIZADA' || f.estado === 'ANULADA'
+                    : f.estado === 'PENDIENTE');
             return (!filtros.numeroFactura || String(f.numeroFactura).includes(filtros.numeroFactura.trim()))
                 && coincideCliente
                 && (!filtros.condicionIvaId || String(f.condicionIvaId) === filtros.condicionIvaId)
                 && (filtros.montoMinimo === undefined || f.importeTotal >= filtros.montoMinimo)
-                && (filtros.informadaArca === undefined || Boolean(f.informadaArca) === filtros.informadaArca)
+                && coincideArca
                 && (!filtros.estado || f.estado === filtros.estado)
                 && (!filtros.fechaDesde || fecha >= filtros.fechaDesde)
                 && (!filtros.fechaHasta || fecha <= filtros.fechaHasta);

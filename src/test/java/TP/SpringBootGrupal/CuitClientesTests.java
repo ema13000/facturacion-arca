@@ -80,6 +80,8 @@ class CuitClientesTests {
                 .thenReturn(Optional.of(new CondicionIva()));
         // Todos los clientes de prueba ya existen, con nombre y categoría
         when(clientes.findFirstByCuit(anyString())).thenAnswer(i -> Optional.of(cliente(i.getArgument(0))));
+        when(clientes.findFirstByDenominacionAndCuit(anyString(), anyString()))
+                .thenAnswer(i -> Optional.of(cliente(i.getArgument(1))));
     }
 
     private Cliente cliente(String cuit) {
@@ -99,7 +101,9 @@ class CuitClientesTests {
     void unClienteConElCuitViejoPasaAlCorregidoSinCrearOtro() {
         Cliente distribuidora = cliente("30712345674");
         when(clientes.findFirstByCuit("30712345674")).thenReturn(Optional.of(distribuidora));
-        when(clientes.findFirstByCuit("30712345671")).thenReturn(Optional.empty(), Optional.of(distribuidora));
+        when(clientes.findFirstByCuit("30712345671")).thenReturn(Optional.empty());
+        when(clientes.findFirstByDenominacionAndCuit("Distribuidora del Sur S.A.", "30712345671"))
+                .thenReturn(Optional.of(distribuidora));
 
         correr();
 

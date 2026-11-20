@@ -68,6 +68,12 @@ public class FacturaPdfGenerador {
         documento.add(total);
         documento.add(Chunk.NEWLINE);
 
+        if (factura.observaciones() != null && !factura.observaciones().isBlank()) {
+            documento.add(new Paragraph("Observaciones", NEGRITA));
+            documento.add(new Paragraph(factura.observaciones(), NORMAL));
+            documento.add(Chunk.NEWLINE);
+        }
+
         PdfPTable cae = new PdfPTable(1);
         cae.setWidthPercentage(100);
         PdfPCell celda = new PdfPCell();

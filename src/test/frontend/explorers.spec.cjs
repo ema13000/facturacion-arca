@@ -302,7 +302,32 @@ test('las acciones dependen del estado de la factura', async ({ page }) => {
     const [autorizada, pendiente, anulada] = [0, 1, 2].map(i => page.locator('#tbodyFacturas tr').nth(i));
     await expect(autorizada.getByRole('button')).toHaveText(['Anular', 'Ver factura']);
     await expect(pendiente.getByRole('button')).toHaveText(['Editar', 'Eliminar', 'Autorizar en ARCA']);
-    await expect(anulada.getByRole('button')).toHaveCount(0);
+    await expect(anulada.getByRole('button', { name: 'Ver motivo de anulación' })).toBeVisible();
+});
+
+test('anula desde un cuadro de la aplicación y permite consultar el motivo', async ({ page }) => {
+    let factura = { ...reporte, estado: 'AUTORIZADA' };
+    await page.route('**/api/facturas', route => route.fulfill({ json: [factura] }));
+    await page.route('**/api/facturas/1/estado?*', route => {
+        const datos = route.request().postDataJSON();
+        expect(datos).toEqual({ estado: 'ANULADA', observaciones: 'Error en el importe' });
+        factura = { ...factura, estado: 'ANULADA', motivoAnulacion: datos.observaciones };
+        return route.fulfill({ json: factura });
+    });
+    await page.locator('#btnAplicarFiltros').click();
+    await page.getByRole('button', { name: 'Anular', exact: true }).click();
+    const cuadro = page.getByRole('dialog', { name: /Anular factura/ });
+    await cuadro.getByRole('button', { name: 'Cancelar' }).click();
+    await expect(cuadro).toBeHidden();
+    await page.getByRole('button', { name: 'Anular', exact: true }).click();
+    const motivo = cuadro.getByLabel('Motivo de anulación');
+    await expect(motivo).toBeEmpty();
+    await motivo.fill(' Error en el importe ');
+    await cuadro.getByRole('button', { name: 'Anular factura', exact: true }).click();
+    await expect(cuadro).toBeHidden();
+    await page.getByRole('dialog', { name: 'Factura anulada' }).getByRole('button', { name: 'Entendido' }).click();
+    await page.getByRole('button', { name: 'Ver motivo de anulación' }).click();
+    await expect(page.getByRole('dialog', { name: 'Motivo de anulación' })).toContainText('Error en el importe');
 });
 
 test('las acciones son botones con ícono y descripción al pasar el mouse', async ({ page }) => {
@@ -337,6 +362,7 @@ test('imprimir una autorizada muestra CAE y vencimiento', async ({ page }) => {
         id: 1, numeroFactura: 15, puntoVentaNumero: 2, puntoVentaDescripcion: 'Central', fechaEmision: '2026-11-18',
         clienteDenominacion: 'Librería Centro', clienteCuit: '20123456789', condicionIva: 'Consumidor Final',
         importeTotal: 250, cae: '75123456789012', caeFechaVencimiento: '2026-11-28',
+        observaciones: 'Pago contado\nEntregar <en recepción>',
         detalles: [{ descripcion: 'Cuaderno azul', cantidad: 2, precioUnitario: 125, porcentajeBonificacion: 0, importeSubtotal: 250 }]
     } }));
     await page.locator('#btnAplicarFiltros').click();
@@ -356,6 +382,7 @@ test('imprimir una autorizada muestra CAE y vencimiento', async ({ page }) => {
     expect(await ventana.evaluate(() => window.sePidioImpresion)).toBe(true);
     await ventana.emulateMedia({ media: 'print' });
     await expect(imprimir).toBeHidden();
+    await expect(ventana.locator('.observaciones')).toContainText('Entregar <en recepción>');
 });
 
 test('mantiene los reportes a la derecha y quita los textos secundarios pedidos', async ({ page }) => {
@@ -465,18 +492,19 @@ test('guardar deja la factura pendiente y no la manda a ARCA', async ({ page }) 
 
 test('filtra monto, CUIT, IVA y envío a ARCA y exporta ese listado', async ({ page }) => {
     await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
-        { ...reporte, id: 11, clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 500, informadaArca: true },
+        { ...reporte, id: 11, estado: 'AUTORIZADA', clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 500, informadaArca: true },
         { ...reporte, id: 12, clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 499, informadaArca: true },
-        { ...reporte, id: 13, clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 700, informadaArca: false },
+        { ...reporte, id: 13, estado: 'PENDIENTE', clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 700, informadaArca: true },
         { ...reporte, id: 14, clienteCuit: '20123456789', condicionIvaId: 2, importeTotal: 800, informadaArca: true },
-        { ...reporte, id: 15, clienteCuit: '20987654321', condicionIvaId: 3, importeTotal: 900, informadaArca: true }
+        { ...reporte, id: 15, clienteCuit: '20987654321', condicionIvaId: 3, importeTotal: 900, informadaArca: true },
+        { ...reporte, id: 16, estado: 'ANULADA', clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 600, informadaArca: false }
     ] }));
     await page.locator('#txtFiltroCliente').fill('20-12345678-9');
     await page.locator('#txtMontoMinimo').fill('500');
     await page.locator('#selFiltroIva').selectOption({ label: 'Responsable Monotributo' });
-    await page.locator('#selFiltroArca').selectOption('informadas');
+    await page.getByLabel('Informadas con ARCA').selectOption('informadas');
     await page.locator('#btnAplicarFiltros').click();
-    await expect(page.locator('#contadorFacturas')).toHaveText('1 comprobante(s)');
+    await expect(page.locator('#contadorFacturas')).toHaveText('2 comprobante(s)');
 
     for (const [formato, boton] of [['pdf', 'Reporte PDF'], ['xlsx', 'Reporte Excel']]) {
         const url = '**/api/facturas/reportes/' + formato;
@@ -484,7 +512,7 @@ test('filtra monto, CUIT, IVA y envío a ARCA y exporta ese listado', async ({ p
         const pedido = page.waitForRequest(url);
         const descarga = page.waitForEvent('download');
         await page.getByRole('button', { name: boton }).click();
-        expect((await pedido).postDataJSON()).toEqual([11]);
+        expect((await pedido).postDataJSON()).toEqual([11, 16]);
         expect((await descarga).suggestedFilename()).toBe('reporte-facturas.' + formato);
     }
 
