@@ -5,6 +5,7 @@ import type {
     FacturaEdicionDTO,
     FacturaImpresionDTO,
     OpcionDTO,
+    PuntoVentaDTO,
     ClienteExplorerDTO,
     PrecioArticuloExplorerDTO,
     AutorizacionFacturaC
@@ -57,7 +58,7 @@ export class FacturaService {
         return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/${id}`);
     }
 
-    async obtenerPuntosVenta(): Promise<OpcionDTO[]> {
+    async obtenerPuntosVenta(): Promise<PuntoVentaDTO[]> {
         const response = await fetch(`${this.catalogosUrl}/puntos-venta`);
         await this.comprobarRespuesta(response);
         return await response.json();

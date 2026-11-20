@@ -5,7 +5,9 @@ import TP.SpringBootGrupal.entities.Cliente;
 import TP.SpringBootGrupal.entities.Contacto;
 import TP.SpringBootGrupal.entities.Domicilio;
 import TP.SpringBootGrupal.entities.Usuario;
+import TP.SpringBootGrupal.entities.CondicionIva;
 import TP.SpringBootGrupal.repository.ClienteRepository;
+import TP.SpringBootGrupal.repository.CondicionIvaRepository;
 import TP.SpringBootGrupal.repository.ContactoRepository;
 import TP.SpringBootGrupal.repository.DomicilioRepository;
 import TP.SpringBootGrupal.repository.UsuarioRepository;
@@ -27,6 +29,7 @@ class DatosInicialesTests {
     private final UsuarioRepository usuarios = mock(UsuarioRepository.class);
     private final ContactoRepository contactos = mock(ContactoRepository.class);
     private final DomicilioRepository domicilios = mock(DomicilioRepository.class);
+    private final CondicionIvaRepository condiciones = mock(CondicionIvaRepository.class);
 
     @BeforeEach
     void preparar() {
@@ -34,10 +37,16 @@ class DatosInicialesTests {
         when(contactos.save(any(Contacto.class))).thenAnswer(i -> i.getArgument(0));
         when(domicilios.save(any(Domicilio.class))).thenAnswer(i -> i.getArgument(0));
         when(clientes.findFirstByCuitCuil(anyString())).thenReturn(Optional.empty());
+        for (int codigo : new int[]{1, 4, 5, 6}) {
+            CondicionIva condicion = new CondicionIva();
+            condicion.setCodigoAfip(codigo);
+            condicion.setDenominacion("Condicion " + codigo);
+            when(condiciones.findFirstByCodigoAfip(codigo)).thenReturn(Optional.of(condicion));
+        }
     }
 
     private DatosIniciales cargador() {
-        return new DatosIniciales(clientes, usuarios, contactos, domicilios);
+        return new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones);
     }
 
     private List<Cliente> clientesGuardados(int veces) {
@@ -50,7 +59,7 @@ class DatosInicialesTests {
     void conLaBaseVaciaCargaVeinteClientesDistintosYCompletos() {
         cargador().run();
 
-        List<Cliente> guardados = clientesGuardados(20);
+        List<Cliente> guardados = clientesGuardados(25);
         var cuits = new HashSet<String>();
         for (Cliente cliente : guardados) {
             cuits.add(cliente.getCuitCuil());
@@ -61,7 +70,8 @@ class DatosInicialesTests {
             assertNotNull(cliente.getContacto());
             assertNotNull(cliente.getDomicilio());
         }
-        assertEquals(20, cuits.size());
+        assertEquals(25, cuits.size());
+        assertTrue(guardados.stream().allMatch(c -> c.getCondicionIva() != null));
     }
 
     @Test
@@ -70,20 +80,53 @@ class DatosInicialesTests {
             Cliente existente = new Cliente();
             existente.setCuitCuil(datos[0]);
             existente.setNombre(datos[2]);
+            existente.setCondicionIva(new CondicionIva());
             when(clientes.findFirstByCuitCuil(datos[0])).thenReturn(Optional.of(existente));
         }
 
         cargador().run();
 
-        List<Cliente> guardados = clientesGuardados(15);
+        List<Cliente> guardados = clientesGuardados(20);
         assertTrue(guardados.stream().noneMatch(c -> c.getCuitCuil().equals("20123456786")));
     }
 
     @Test
     void losClientesNuevosTienenCuitConDigitoVerificadorValido() {
-        for (String[] datos : DatosIniciales.CLIENTES_PRUEBA.subList(5, 20)) {
+        for (String[] datos : DatosIniciales.CLIENTES_PRUEBA.subList(5, 25)) {
             assertTrue(cuitValido(datos[0]), "CUIT inválido: " + datos[0]);
         }
+    }
+
+    @Test
+    void lasCincoPersonasTienenSuCategoriaFija() {
+        cargador().run();
+
+        List<Cliente> guardados = clientesGuardados(25);
+        assertEquals(1, categoria(guardados, "Sofía", "Indovino"));
+        assertEquals(5, categoria(guardados, "Juan Cruz", "Grivel"));
+        assertEquals(6, categoria(guardados, "Emanuel", "Mateo"));
+        assertEquals(4, categoria(guardados, "Enzo", "Mellimaci"));
+        assertEquals(1, categoria(guardados, "Juan Sebastián", "Cabrera"));
+    }
+
+    @Test
+    void aLosClientesYaCargadosSinCategoriaSeLesAsignaUna() {
+        Cliente existente = new Cliente();
+        existente.setCuitCuil("20123456786");
+        existente.setNombre("Juan");
+        when(clientes.findFirstByCuitCuil(anyString())).thenReturn(Optional.of(existente));
+
+        cargador().run();
+
+        assertNotNull(existente.getCondicionIva());
+        verify(clientes, atLeastOnce()).save(existente);
+    }
+
+    private int categoria(List<Cliente> guardados, String nombre, String apellido) {
+        return guardados.stream()
+                .filter(c -> nombre.equals(c.getNombre()) && apellido.equals(c.getApellido()))
+                .findFirst().orElseThrow(() -> new AssertionError("Falta " + nombre + " " + apellido))
+                .getCondicionIva().getCodigoAfip();
     }
 
     private boolean cuitValido(String cuit) {

@@ -232,7 +232,7 @@ class ExplorerTests {
             existente.setNombre("Ya cargado");
             return Optional.of(existente);
         });
-        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones).run();
         verify(clientes, never()).save(any(Cliente.class));
     }
 
@@ -240,7 +240,7 @@ class ExplorerTests {
     void losClientesDePruebaTienenNombreYApellido() {
         when(clientes.count()).thenReturn(0L);
         when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
-        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones).run();
         var captor = org.mockito.ArgumentCaptor.forClass(Cliente.class);
         verify(clientes, atLeastOnce()).save(captor.capture());
         for (Cliente cliente : captor.getAllValues()) {
@@ -260,7 +260,7 @@ class ExplorerTests {
         }
         when(clientes.count()).thenReturn(5L);
         when(clientes.findFirstByCuitCuil("20123456786")).thenReturn(Optional.of(existente));
-        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones).run();
         if (yaTieneNombre) {
             verify(clientes, never()).save(any(Cliente.class));
             assertEquals("Otro", existente.getNombre());
@@ -275,7 +275,7 @@ class ExplorerTests {
     void noCargaClientesSiNoHayUsuarios() {
         when(clientes.count()).thenReturn(0L);
         when(usuarios.findAll()).thenReturn(List.of());
-        new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
+        new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones).run();
         verify(clientes, never()).save(any(Cliente.class));
     }
 }

@@ -18,7 +18,10 @@ public record FacturaImpresionDTO(
         double importeTotal,
         String cae,
         Date caeFechaVencimiento,
-        List<Renglon> detalles
+        List<Renglon> detalles,
+        String tipoComprobante,
+        double importeNeto,
+        double importeIva
 ) {
     public record Renglon(
             String descripcion,
@@ -49,7 +52,14 @@ public record FacturaImpresionDTO(
                         .map(d -> new Renglon(d.getDescripcion(), d.getCantidad(),
                                 d.getPrecioUnitario(), d.getPorcentajeBonificacion(),
                                 d.getImporteSubtotal()))
-                        .toList()
+                        .toList(),
+                TP.SpringBootGrupal.service.TipoComprobante.normalizar(factura.getTipoComprobante()),
+                redondear(factura.getDetalles().stream().mapToDouble(d -> d.getImporteNeto()).sum()),
+                redondear(factura.getDetalles().stream().mapToDouble(d -> d.getImporteIva()).sum())
         );
+    }
+
+    private static double redondear(double importe) {
+        return Math.round(importe * 100) / 100.0;
     }
 }

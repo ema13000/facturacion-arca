@@ -2,6 +2,7 @@ package TP.SpringBootGrupal.service;
 
 import TP.SpringBootGrupal.Exceptions.RecursoNoEncontradoException;
 import TP.SpringBootGrupal.dtos.OpcionDTO;
+import TP.SpringBootGrupal.dtos.PuntoVentaDTO;
 import TP.SpringBootGrupal.dtos.ClienteExplorerDTO;
 import TP.SpringBootGrupal.dtos.PrecioArticuloExplorerDTO;
 import TP.SpringBootGrupal.entities.Cliente;
@@ -117,8 +118,12 @@ public class CatalogoService {
     }
 
     private ClienteExplorerDTO aClienteDTO(Cliente cliente) {
+        var condicion = cliente.getCondicionIva();
         return new ClienteExplorerDTO(cliente.getId(), cliente.getCuitCuil(), cliente.getDenominacion(),
-                cliente.getNombre(), cliente.getApellido());
+                cliente.getNombre(), cliente.getApellido(),
+                condicion == null ? null : condicion.getId(),
+                condicion == null ? null : condicion.getDenominacion(),
+                condicion == null ? null : condicion.getCodigoAfip());
     }
 
     private PrecioArticuloExplorerDTO aPrecioDTO(ListaPrecioArticulo precio) {
@@ -130,12 +135,18 @@ public class CatalogoService {
     }
 
     @Transactional(readOnly = true)
-    public List<OpcionDTO> obtenerPuntosVenta() {
+    public List<PuntoVentaDTO> obtenerPuntosVenta() {
         return puntoVentaRepository.findAll().stream()
-                .map(punto -> new OpcionDTO(
-                        punto.getId(),
-                        punto.getNumero() + " - " + punto.getDescripcion()
-                ))
+                .sorted(java.util.Comparator.comparingInt(punto -> punto.getNumero()))
+                .map(punto -> {
+                    boolean inscripto = Boolean.TRUE.equals(punto.getResponsableInscripto());
+                    return new PuntoVentaDTO(
+                            punto.getId(),
+                            punto.getNumero() + " - " + punto.getDescripcion()
+                                    + (inscripto ? " (Resp. Inscripto)" : " (Monotributo)"),
+                            inscripto
+                    );
+                })
                 .toList();
     }
 

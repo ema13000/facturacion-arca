@@ -29,7 +29,8 @@ public class FacturaPdfGenerador {
     }
 
     public static String nombreArchivo(FacturaImpresionDTO factura) {
-        return "factura-C-" + numeroComprobante(factura) + ".pdf";
+        return "factura-" + TipoComprobante.normalizar(factura.tipoComprobante()) + "-"
+                + numeroComprobante(factura) + ".pdf";
     }
 
     public byte[] generar(FacturaImpresionDTO factura) {
@@ -38,7 +39,8 @@ public class FacturaPdfGenerador {
         PdfWriter.getInstance(documento, salida);
         documento.open();
 
-        documento.add(new Paragraph("FACTURA C", TITULO));
+        String letra = TipoComprobante.normalizar(factura.tipoComprobante());
+        documento.add(new Paragraph("FACTURA " + letra, TITULO));
         documento.add(new Paragraph("N° " + numeroComprobante(factura), NEGRITA));
         documento.add(new Paragraph("Punto de venta: " + factura.puntoVentaDescripcion(), NORMAL));
         documento.add(new Paragraph("Fecha de emisión: " + fecha(factura.fechaEmision()), NORMAL));
@@ -52,6 +54,13 @@ public class FacturaPdfGenerador {
         documento.add(Chunk.NEWLINE);
 
         documento.add(tablaDetalles(factura));
+
+        if ("A".equals(letra)) {
+            agregarDerecha(documento, "Neto gravado: " + moneda(factura.importeNeto()));
+            agregarDerecha(documento, "IVA 21%: " + moneda(factura.importeIva()));
+        } else if ("B".equals(letra)) {
+            agregarDerecha(documento, "IVA 21% incluido: " + moneda(factura.importeIva()));
+        }
 
         Paragraph total = new Paragraph("TOTAL: " + moneda(factura.importeTotal()), TOTAL);
         total.setAlignment(Element.ALIGN_RIGHT);
@@ -73,6 +82,12 @@ public class FacturaPdfGenerador {
 
         documento.close();
         return salida.toByteArray();
+    }
+
+    private void agregarDerecha(Document documento, String texto) {
+        Paragraph parrafo = new Paragraph(texto, NORMAL);
+        parrafo.setAlignment(Element.ALIGN_RIGHT);
+        documento.add(parrafo);
     }
 
     private PdfPTable tablaDetalles(FacturaImpresionDTO factura) {

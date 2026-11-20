@@ -253,11 +253,7 @@ public class FacturaServiceImpl implements FacturaService {
                     ));
         }
 
-        CondicionIva condicionIva = condicionIvaRepository
-                .findById(dto.condicionIvaId())
-                .orElseThrow(() -> new RecursoNoEncontradoException(
-                        "No existe la condición de IVA"
-                ));
+        CondicionIva condicionIva = resolverCondicionIva(cliente, dto.condicionIvaId());
 
         TipoMoneda tipoMoneda = tipoMonedaRepository
                 .findById(dto.tipoMonedaId())
@@ -271,6 +267,12 @@ public class FacturaServiceImpl implements FacturaService {
                         "No existe el punto de venta"
                 ));
 
+        // La letra sale del emisor (punto de venta) y de la condición del receptor
+        String letra = TipoComprobante.letra(
+                Boolean.TRUE.equals(puntoVenta.getResponsableInscripto()),
+                condicionIva.getCodigoAfip()
+        );
+
         List<FacturaVentaDetalle> nuevosDetalles = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
 
@@ -278,7 +280,8 @@ public class FacturaServiceImpl implements FacturaService {
             FacturaVentaDetalle detalle = crearDetalle(
                     detalleDto,
                     factura,
-                    porcentajeIva
+                    porcentajeIva,
+                    letra
             );
 
             nuevosDetalles.add(detalle);
@@ -292,6 +295,7 @@ public class FacturaServiceImpl implements FacturaService {
         factura.setCondicionIva(condicionIva);
         factura.setTipoMoneda(tipoMoneda);
         factura.setPuntoVenta(puntoVenta);
+        factura.setTipoComprobante(letra);
 
         factura.getDetalles().clear();
         factura.getDetalles().addAll(nuevosDetalles);
@@ -308,7 +312,8 @@ public class FacturaServiceImpl implements FacturaService {
     private FacturaVentaDetalle crearDetalle(
             FacturaDetalleRequestDTO dto,
             FacturaVenta factura,
-            double porcentajeIva
+            double porcentajeIva,
+            String letra
     ) {
         if (dto == null) {
             throw new IllegalArgumentException(
@@ -349,13 +354,25 @@ public class FacturaServiceImpl implements FacturaService {
                 bruto.multiply(factorBonificacion)
         );
 
-        BigDecimal iva = redondear(
-                neto.multiply(
-                        BigDecimal.valueOf(porcentajeIva).movePointLeft(2)
-                )
-        );
+        BigDecimal iva;
+        BigDecimal subtotal;
 
-        BigDecimal subtotal = neto.add(iva);
+        if (TipoComprobante.llevaIva(letra)) {
+            // Factura A/B: el precio de lista ya incluye el IVA 21%; se separa neto e IVA
+            subtotal = neto;
+            neto = subtotal.divide(
+                    BigDecimal.ONE.add(TipoComprobante.ALICUOTA_IVA.movePointLeft(2)),
+                    2, RoundingMode.HALF_UP
+            );
+            iva = subtotal.subtract(neto);
+        } else {
+            iva = redondear(
+                    neto.multiply(
+                            BigDecimal.valueOf(porcentajeIva).movePointLeft(2)
+                    )
+            );
+            subtotal = neto.add(iva);
+        }
 
         FacturaVentaDetalle detalle = new FacturaVentaDetalle();
 
@@ -372,6 +389,27 @@ public class FacturaServiceImpl implements FacturaService {
         detalle.setImporteSubtotal(subtotal.doubleValue());
 
         return detalle;
+    }
+
+    /**
+     * La condición frente al IVA no se elige: es la del cliente.
+     * Sin cliente siempre es Consumidor Final. Solo un cliente sin categoría cargada usa la pedida.
+     */
+    private CondicionIva resolverCondicionIva(Cliente cliente, Long condicionPedidaId) {
+        if (cliente != null && cliente.getCondicionIva() != null) {
+            return cliente.getCondicionIva();
+        }
+        if (cliente == null) {
+            var consumidorFinal = condicionIvaRepository.findFirstByCodigoAfip(TipoComprobante.CONSUMIDOR_FINAL);
+            if (consumidorFinal.isPresent()) {
+                return consumidorFinal.get();
+            }
+        }
+        if (condicionPedidaId == null) {
+            throw new IllegalArgumentException("La condición de IVA es obligatoria");
+        }
+        return condicionIvaRepository.findById(condicionPedidaId)
+                .orElseThrow(() -> new RecursoNoEncontradoException("No existe la condición de IVA"));
     }
 
     private ListaPrecioArticulo buscarPrecio(Long listaPrecioArticuloId) {

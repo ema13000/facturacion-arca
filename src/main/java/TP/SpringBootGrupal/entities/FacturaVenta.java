@@ -57,6 +57,9 @@ public class FacturaVenta extends AuditoriaApp {
     private Date fechaAnulacion;
     private String observaciones;
 
+    // Letra del comprobante: A, B o C (las facturas viejas quedan en null = C)
+    private String tipoComprobante;
+
     @OneToMany (mappedBy = "factura", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @Builder.Default

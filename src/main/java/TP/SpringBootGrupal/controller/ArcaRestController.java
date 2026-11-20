@@ -33,4 +33,11 @@ public class ArcaRestController {
 
         return ResponseEntity.ok(resultado);
     }
+
+    // Factura que no se puede autorizar (ej: Factura A/B sin certificado de Responsable Inscripto)
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<java.util.Map<String, String>> operacionNoPermitida(IllegalStateException ex) {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                .body(java.util.Map.of("mensaje", ex.getMessage()));
+    }
 }

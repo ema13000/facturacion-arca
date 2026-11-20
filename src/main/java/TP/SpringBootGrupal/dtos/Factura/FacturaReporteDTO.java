@@ -27,6 +27,9 @@ public class FacturaReporteDTO {
     // CUIT/CUIL del cliente (null si es consumidor final): se usa al autorizar en ARCA
     private String clienteCuitCuil;
 
+    // Letra del comprobante: A, B o C
+    private String tipoComprobante;
+
     public static FacturaReporteDTO toDTO(FacturaVenta factura) {
         String cliente = factura.getCliente() == null
                 ? "Consumidor Final"
@@ -46,7 +49,8 @@ public class FacturaReporteDTO {
                 factura.getDetalles().size(),
                 factura.getEstado(),
                 factura.getObservaciones(),
-                cuit
+                cuit,
+                TP.SpringBootGrupal.service.TipoComprobante.normalizar(factura.getTipoComprobante())
         );
     }
 }

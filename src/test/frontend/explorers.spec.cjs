@@ -9,8 +9,19 @@ let server;
 let origin;
 const root = path.resolve(__dirname, '../../main/resources/static');
 const clientes = [
-    { id: 7, cuitCuil: '20123456789', denominacion: 'Librería Centro', nombre: 'Juan', apellido: 'Pérez' },
-    { id: 9, cuitCuil: '20987654321', denominacion: 'Escuela Norte', nombre: 'María', apellido: 'González' }
+    { id: 7, cuitCuil: '20123456789', denominacion: 'Librería Centro', nombre: 'Juan', apellido: 'Pérez',
+        condicionIvaId: 3, condicionIva: 'Responsable Monotributo', condicionIvaCodigo: 6 },
+    { id: 9, cuitCuil: '20987654321', denominacion: 'Escuela Norte', nombre: 'María', apellido: 'González',
+        condicionIvaId: null, condicionIva: null, condicionIvaCodigo: null }
+];
+const condiciones = [
+    { id: 1, descripcion: 'Consumidor Final' },
+    { id: 2, descripcion: 'IVA Responsable Inscripto' },
+    { id: 3, descripcion: 'Responsable Monotributo' }
+];
+const puntosVenta = [
+    { id: 1, descripcion: '1 - Central (Monotributo)', responsableInscripto: false },
+    { id: 2, descripcion: '2 - Sucursal RI (Resp. Inscripto)', responsableInscripto: true }
 ];
 const listas = [
     { id: 1, descripcion: 'Minorista' },
@@ -51,6 +62,8 @@ test.beforeEach(async ({ page }) => {
         if (url.pathname.endsWith('/clientes')) body = clientes.filter(c => coincide(texto, [c.cuitCuil, c.denominacion]));
         else if (/\/clientes\/\d+$/.test(url.pathname)) body = clientes.find(c => url.pathname.endsWith('/' + c.id));
         else if (url.pathname.endsWith('/listas-precio')) body = listas;
+        else if (url.pathname.endsWith('/condiciones-iva')) body = condiciones;
+        else if (url.pathname.endsWith('/puntos-venta')) body = puntosVenta;
         else if (url.pathname.endsWith('/precios-articulos')) {
             const lista = Number(url.searchParams.get('listaPrecioId'));
             body = precios.filter(p => p.listaPrecioId === lista && coincide(texto, [p.articuloCodigo, p.articuloDenominacion]));
@@ -144,7 +157,7 @@ test('elige precios, calcula el total, envía el ID y conserva renglones al quit
     await expect(page.locator('#tbodyRenglones')).toContainText('Lápiz');
     await expect(page.locator('#inputNumero')).toHaveCount(0);
     await expect(page.locator('#seccionAlta')).not.toContainText('Número de factura');
-    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) await page.locator('#' + id).selectOption('1');
+    for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
     page.on('dialog', dialog => dialog.accept());
     const request = page.waitForRequest(req => req.method() === 'POST' && req.url().includes('/api/facturas'));
     await page.locator('#btnGuardarFactura').click();
@@ -155,6 +168,7 @@ test('elige precios, calcula el total, envía el ID y conserva renglones al quit
     expect(params.get('usuarioId')).toBe('1');
     const dto = enviada.postDataJSON();
     expect(dto.detalles[0].listaPrecioArticuloId).toBe(27);
+    expect(dto.condicionIvaId).toBe(1);
     await expect(page.locator('#seccionListado')).toBeVisible();
 });
 
@@ -196,7 +210,7 @@ test('un error del explorer se informa y permite reintentar', async ({ page }) =
 
 test('no guarda renglones sin seleccionar un precio', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva', 'inputListaPrecio']) await page.locator('#' + id).selectOption('1');
+    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputListaPrecio']) await page.locator('#' + id).selectOption('1');
     const dialogo = page.waitForEvent('dialog');
     const guardar = page.locator('#btnGuardarFactura').click();
     const alerta = await dialogo;
@@ -326,7 +340,7 @@ test('después de guardar, la factura nueva queda resaltada arriba del listado',
     await page.locator('[data-buscar-precio]').first().click();
     await buscar(page, 'cuaderno');
     await page.locator('#explorerFilas button').click();
-    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) await page.locator('#' + id).selectOption('1');
+    for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
     page.on('dialog', dialog => dialog.accept());
     await page.locator('#btnGuardarFactura').click();
     await expect(page.locator('#tbodyFacturas tr').first()).toHaveClass(/fila-nueva/);
@@ -402,7 +416,7 @@ test('guardar deja la factura pendiente y no la manda a ARCA', async ({ page }) 
     await codigo.fill('A8');
     await codigo.press('Enter');
     await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
-    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) await page.locator('#' + id).selectOption('1');
+    for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
     const mensajes = [];
     page.on('dialog', dialog => { mensajes.push(dialog.message()); dialog.accept(); });
     await page.locator('#btnGuardarFactura').click();
@@ -452,4 +466,101 @@ test('una búsqueda sin coincidencias se informa', async ({ page }) => {
     await expect(page.locator('#explorerFilas button')).toHaveCount(0);
     await page.locator('#btnCerrarExplorer').click();
     await expect(page.locator('#clienteDescripcion')).toHaveValue('Consumidor final');
+});
+
+async function elegirCliente(page, texto) {
+    await page.locator('#btnBuscarCliente').click();
+    await buscar(page, texto);
+    await page.locator('#explorerFilas button').first().click();
+}
+
+test('sin cliente la condición de IVA queda en Consumidor Final y no se puede cambiar', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    const condicion = page.locator('#inputCondicionIva');
+    await expect(condicion).toHaveValue('1');
+    await expect(condicion).toBeDisabled();
+});
+
+test('al elegir un cliente se pone su categoría fija; al quitarlo vuelve a Consumidor Final', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    await elegirCliente(page, 'librería');
+    const condicion = page.locator('#inputCondicionIva');
+    await expect(condicion).toHaveValue('3');
+    await expect(condicion).toBeDisabled();
+    await page.locator('#btnQuitarCliente').click();
+    await expect(condicion).toHaveValue('1');
+    await expect(condicion).toBeDisabled();
+});
+
+test('un cliente sin categoría cargada deja elegir la condición a mano', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    await elegirCliente(page, 'escuela');
+    await expect(page.locator('#inputCondicionIva')).toBeEnabled();
+});
+
+test('la letra de la factura depende del punto de venta y del cliente', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    const letra = page.locator('#letraComprobante');
+    await page.locator('#inputPuntoVenta').selectOption('1');
+    await expect(letra).toHaveText('Factura C');
+    await page.locator('#inputPuntoVenta').selectOption('2');
+    await expect(letra).toHaveText('Factura B');
+    await elegirCliente(page, 'librería');
+    await expect(letra).toHaveText('Factura A');
+});
+
+test('en Factura A se ve el IVA 21% discriminado y en C no', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    await page.locator('#inputPuntoVenta').selectOption('2');
+    await elegirCliente(page, 'librería');
+    await page.locator('#inputListaPrecio').selectOption('1');
+    await page.locator('[data-buscar-precio]').first().click();
+    await buscar(page, 'cuaderno');
+    await page.locator('#explorerFilas button').click();
+    await page.locator('#tbodyRenglones input[type=number]').first().fill('121');
+    await expect(page.locator('#filaIvaFactura')).toBeVisible();
+    await expect(page.locator('#etiquetaIvaFactura')).toHaveText('IVA 21% (discriminado)');
+    await expect(page.locator('#ivaFactura')).toHaveText('$2,100.00');
+    await expect(page.locator('#totalFactura')).toHaveText('$12,100.00');
+    await page.locator('#inputPuntoVenta').selectOption('1');
+    await expect(page.locator('#filaIvaFactura')).toBeHidden();
+});
+
+test('el listado muestra la letra de cada factura', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 2, numeroFactura: 2, tipoComprobante: 'A' }, { ...reporte, tipoComprobante: 'C' }
+    ] }));
+    await page.locator('#btnAplicarFiltros').click();
+    await expect(page.locator('#tbodyFacturas tr').nth(0).locator('td').first()).toHaveText('A 2');
+    await expect(page.locator('#tbodyFacturas tr').nth(1).locator('td').first()).toHaveText('C 1');
+});
+
+test('autorizar una Factura A avisa que falta el certificado de Responsable Inscripto', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, tipoComprobante: 'A' }] }));
+    await page.locator('#btnAplicarFiltros').click();
+    let mensaje = '';
+    page.once('dialog', dialogo => { mensaje = dialogo.message(); void dialogo.accept(); });
+    await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
+    await expect.poll(() => mensaje).toContain('Responsable Inscripto');
+    await expect(page.locator('#autorizarDialog')).not.toBeVisible();
+    expect(page.pedidos.some(u => u.pathname.endsWith('/autorizar-arca'))).toBe(false);
+});
+
+test('imprimir una Factura A muestra la letra y el IVA', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA', tipoComprobante: 'A' }] }));
+    await page.route('**/api/facturas/1/impresion', route => route.fulfill({ json: {
+        id: 1, numeroFactura: 3, puntoVentaNumero: 2, puntoVentaDescripcion: 'Sucursal RI', fechaEmision: '2026-11-18',
+        clienteDenominacion: 'Sofía Indovino', clienteCuitCuil: '27381112220', condicionIva: 'IVA Responsable Inscripto',
+        importeTotal: 1210, cae: '75123456789012', caeFechaVencimiento: '2026-11-28', tipoComprobante: 'A',
+        importeNeto: 1000, importeIva: 210,
+        detalles: [{ descripcion: 'Resma', cantidad: 1, precioUnitario: 1210, porcentajeBonificacion: 0, importeSubtotal: 1210 }]
+    } }));
+    await page.locator('#btnAplicarFiltros').click();
+    await page.addInitScript(() => { window.print = () => {}; });
+    const popup = page.waitForEvent('popup');
+    await page.getByRole('button', { name: 'Imprimir' }).click();
+    const ventana = await popup;
+    await expect(ventana.locator('.letra')).toHaveText('A');
+    await expect(ventana.locator('body')).toContainText('Neto gravado: $1,000.00');
+    await expect(ventana.locator('body')).toContainText('IVA 21%: $210.00');
 });

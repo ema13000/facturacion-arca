@@ -6,7 +6,7 @@
     <title>Sistema de Facturación</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <link rel="stylesheet" href="./style.css?v=7">
+    <link rel="stylesheet" href="./style.css?v=8">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
         </span>
         <div>
             <strong>Facturación</strong>
-            <small>Factura C · ARCA</small>
+            <small>Facturas A, B y C · ARCA</small>
         </div>
     </div>
 
@@ -166,7 +166,7 @@
         <form id="formAltaFactura">
             <section class="panel">
                 <div class="panel-titulo">
-                    <span>1. Datos del comprobante</span>
+                    <span>1. Datos del comprobante <span id="letraComprobante" class="letra-comprobante" title="La letra depende del emisor (punto de venta) y de la condición del cliente">Factura —</span></span>
                     <button type="button" id="btnVolver" class="btn-secundario btn-chico">← Volver al listado</button>
                 </div>
 
@@ -188,6 +188,7 @@
                         <select id="inputCondicionIva" required disabled>
                             <option value="">Cargando condiciones de IVA...</option>
                         </select>
+                        <small class="ayuda-input" id="ayudaCondicionIva">Sin cliente: Consumidor Final.</small>
                     </div>
                 </div>
             </section>
@@ -274,6 +275,10 @@
                             <span>Bonificaciones</span>
                             <span id="bonificacionFactura">-$0.00</span>
                         </div>
+                        <div class="fila-total oculto" id="filaIvaFactura">
+                            <span id="etiquetaIvaFactura">IVA 21%</span>
+                            <span id="ivaFactura">$0.00</span>
+                        </div>
                         <div class="fila-total final">
                             <span>Total</span>
                             <span id="totalFactura">$0.00</span>
@@ -341,6 +346,6 @@
     </div>
 </dialog>
 
-<script type="module" src="./dist/app.js?v=7"></script>
+<script type="module" src="./dist/app.js?v=8"></script>
 </body>
 </html>

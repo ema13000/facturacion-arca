@@ -25,4 +25,8 @@ public class PuntoVenta extends AuditoriaApp {
     private String descripcion;
     private String tipoEmision;
     private String domicilioComercial;
+
+    // Condición del emisor en este punto de venta: true = Responsable Inscripto (emite A/B),
+    // false o null = Monotributista (emite C)
+    private Boolean responsableInscripto;
 }

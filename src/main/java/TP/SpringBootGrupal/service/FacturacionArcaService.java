@@ -46,6 +46,20 @@ public class FacturacionArcaService {
         this.facturaRepository = facturaRepository;
     }
 
+    /** Solo la Factura C está integrada: A y B necesitan un CUIT Responsable Inscripto con certificado. */
+    private void validarLetraAutorizable(FacturaVenta factura) {
+        if (factura == null) {
+            throw new IllegalArgumentException("La factura es obligatoria");
+        }
+        String letra = TipoComprobante.normalizar(factura.getTipoComprobante());
+        if (!"C".equals(letra)) {
+            throw new IllegalStateException(
+                    "Para autorizar la Factura " + letra + " en ARCA hace falta un CUIT Responsable Inscripto"
+                            + " con su certificado. La factura queda guardada como PENDIENTE."
+            );
+        }
+    }
+
     private void validarConfiguracion() {
         if (cuit <= 0 || String.valueOf(cuit).length() != 11) {
             throw new IllegalStateException(
@@ -181,6 +195,7 @@ public class FacturacionArcaService {
             long numeroDocumento
     ) throws Exception {
 
+        validarLetraAutorizable(factura);
         validarConfiguracion();
         validarFacturaParaArca(factura);
 

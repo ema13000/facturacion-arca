@@ -63,7 +63,7 @@ public class CatalogoRestController {
     }
 
     @GetMapping("/puntos-venta")
-    public List<OpcionDTO> obtenerPuntosVenta() {
+    public List<TP.SpringBootGrupal.dtos.PuntoVentaDTO> obtenerPuntosVenta() {
         return service.obtenerPuntosVenta();
     }
 

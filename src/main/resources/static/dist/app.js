@@ -9,6 +9,61 @@ let facturaEnEdicionId = null;
 // Precios ya elegidos, por ID: se usan para mostrar descripción y calcular el total
 const preciosElegidos = new Map();
 let clienteSeleccionado = null;
+let puntosVentaCargados = [];
+/* ---------- Tipo de factura (A, B o C) ---------- */
+const CONSUMIDOR_FINAL = 5;
+// Condiciones del receptor que reciben Factura A de un Responsable Inscripto
+const RECIBEN_FACTURA_A = [1, 6, 13, 16];
+const ALICUOTA_IVA = 21;
+const MENSAJE_ARCA_AB = (letra) => `Para autorizar la Factura ${letra} en ARCA hace falta un CUIT Responsable Inscripto con su certificado. ` +
+    'La factura queda guardada como PENDIENTE.';
+function letraDe(factura) {
+    return factura.tipoComprobante || 'C';
+}
+/** Misma regla que el backend: emisor monotributista → C; inscripto → A o B según el cliente. */
+function letraFactura() {
+    const punto = puntosVentaCargados.find(p => String(p.id) === valor('inputPuntoVenta'));
+    if (!punto) {
+        return null;
+    }
+    if (!punto.responsableInscripto) {
+        return 'C';
+    }
+    const codigo = clienteSeleccionado ? clienteSeleccionado.condicionIvaCodigo : CONSUMIDOR_FINAL;
+    return codigo != null && RECIBEN_FACTURA_A.includes(codigo) ? 'A' : 'B';
+}
+function actualizarLetra() {
+    const letra = letraFactura();
+    elemento('letraComprobante').textContent = `Factura ${letra ?? '—'}`;
+    actualizarTotales();
+}
+/** La condición de IVA no se elige: es la del cliente, o Consumidor Final si no hay cliente. */
+function aplicarCondicionDelCliente() {
+    const select = elemento('inputCondicionIva');
+    const ayuda = elemento('ayudaCondicionIva');
+    const opciones = Array.from(select.options).filter(o => o.value !== '');
+    if (opciones.length === 0) {
+        return;
+    }
+    if (clienteSeleccionado === null) {
+        const consumidorFinal = opciones.find(o => o.textContent?.trim().toLowerCase() === 'consumidor final');
+        if (consumidorFinal) {
+            select.value = consumidorFinal.value;
+            select.disabled = true;
+            ayuda.textContent = 'Sin cliente: Consumidor Final.';
+            return;
+        }
+    }
+    else if (clienteSeleccionado.condicionIvaId != null) {
+        select.value = String(clienteSeleccionado.condicionIvaId);
+        select.disabled = true;
+        ayuda.textContent = 'Se toma de la categoría del cliente.';
+        return;
+    }
+    // Cliente sin categoría cargada: se elige a mano
+    select.disabled = false;
+    ayuda.textContent = 'El cliente no tiene categoría cargada: elegila.';
+}
 let buscarEnExplorer = () => { };
 let solicitudExplorer = 0;
 let facturasListado = [];
@@ -103,6 +158,9 @@ async function cargarOpciones() {
         llenarOpciones('inputMoneda', monedas, 'Seleccioná una moneda');
         llenarOpciones('inputCondicionIva', condicionesIva, 'Seleccioná una condición de IVA');
         llenarOpciones('inputListaPrecio', listasPrecio, 'Seleccioná una lista de precios');
+        puntosVentaCargados = puntosVenta;
+        aplicarCondicionDelCliente();
+        actualizarLetra();
     }
     catch (error) {
         for (const id of SELECTS_CATALOGO) {
@@ -175,8 +233,12 @@ function dibujarFacturas() {
     const inicio = (paginaActual - 1) * porPagina;
     for (const factura of facturas.slice(inicio, inicio + porPagina)) {
         const fila = tbody.insertRow();
+        const celdaNumero = fila.insertCell();
+        const letra = document.createElement('span');
+        letra.className = 'tag-letra';
+        letra.textContent = letraDe(factura);
+        celdaNumero.append(letra, ` ${factura.numeroFactura}`);
         const datos = [
-            String(factura.numeroFactura),
             factura.fechaEmision.slice(0, 10),
             factura.clienteDenominacion,
             factura.condicionIva,
@@ -283,6 +345,12 @@ function fechaArgentina(iso) {
 }
 function imprimirFactura(ventana, f) {
     const numero = `${String(f.puntoVentaNumero).padStart(4, '0')}-${String(f.numeroFactura).padStart(8, '0')}`;
+    const letra = letraDe(f);
+    const lineasIva = letra === 'A'
+        ? `<p class="iva">Neto gravado: ${moneda(f.importeNeto ?? 0)}</p><p class="iva">IVA 21%: ${moneda(f.importeIva ?? 0)}</p>`
+        : letra === 'B'
+            ? `<p class="iva">IVA 21% incluido: ${moneda(f.importeIva ?? 0)}</p>`
+            : '';
     const filas = f.detalles.map(d => `
         <tr>
             <td>${escaparHtml(d.descripcion ?? '')}</td>
@@ -292,7 +360,7 @@ function imprimirFactura(ventana, f) {
             <td class="num">${moneda(d.importeSubtotal)}</td>
         </tr>`).join('');
     ventana.document.write(`<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Factura C ${numero}</title>
+<html lang="es"><head><meta charset="UTF-8"><title>Factura ${letra} ${numero}</title>
 <style>
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; margin: 32px; }
     .cabecera { display: flex; justify-content: space-between; border: 2px solid #1e293b; padding: 16px; }
@@ -304,6 +372,7 @@ function imprimirFactura(ventana, f) {
     th, td { border-bottom: 1px solid #cbd5e1; padding: 8px; text-align: left; }
     th { background: #f1f5f9; }
     .num { text-align: right; }
+    .iva { text-align: right; }
     .total { text-align: right; font-size: 1.3rem; font-weight: 700; margin-top: 14px; }
     .cae { margin-top: 24px; border-top: 2px solid #1e293b; padding-top: 12px; text-align: right; }
     @media print { button { display: none; } body { margin: 0; } }
@@ -316,7 +385,7 @@ function imprimirFactura(ventana, f) {
             <p><strong>Fecha de emisión:</strong> ${fechaArgentina(f.fechaEmision)}</p>
             <p><strong>Punto de venta:</strong> ${escaparHtml(f.puntoVentaDescripcion)}</p>
         </div>
-        <div class="letra">C</div>
+        <div class="letra">${letra}</div>
     </div>
     <div class="cliente">
         <p><strong>Cliente:</strong> ${escaparHtml(f.clienteDenominacion)}</p>
@@ -327,6 +396,7 @@ function imprimirFactura(ventana, f) {
         <thead><tr><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio unit.</th><th class="num">Bonif.</th><th class="num">Subtotal</th></tr></thead>
         <tbody>${filas}</tbody>
     </table>
+    ${lineasIva}
     <p class="total">Total: ${moneda(f.importeTotal)}</p>
     <div class="cae">
         <p><strong>CAE N°:</strong> ${escaparHtml(f.cae)}</p>
@@ -366,6 +436,16 @@ function actualizarTotales() {
     elemento('subtotalFactura').textContent = moneda(bruto);
     elemento('bonificacionFactura').textContent = `-${moneda(bruto - total)}`;
     elemento('totalFactura').textContent = moneda(total);
+    // Factura A y B: el precio ya incluye IVA 21%; en A se muestra discriminado
+    const letra = letraFactura();
+    const llevaIva = letra === 'A' || letra === 'B';
+    elemento('filaIvaFactura').classList.toggle('oculto', !llevaIva);
+    if (llevaIva) {
+        const neto = Math.round(total / (1 + ALICUOTA_IVA / 100) * 100) / 100;
+        elemento('etiquetaIvaFactura').textContent =
+            `IVA ${ALICUOTA_IVA}% (${letra === 'A' ? 'discriminado' : 'incluido'})`;
+        elemento('ivaFactura').textContent = moneda(total - neto);
+    }
 }
 function importeBruto(renglon) {
     const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
@@ -553,6 +633,8 @@ async function editarFactura(id) {
     elemento('inputCondicionIva').value = String(factura.condicionIvaId);
     elemento('inputMoneda').value = String(factura.tipoMonedaId);
     elemento('inputPuntoVenta').value = String(factura.puntoVentaId);
+    aplicarCondicionDelCliente();
+    actualizarLetra();
     const primerPrecio = precios.find(p => p !== null);
     if (primerPrecio) {
         const lista = elemento('inputListaPrecio');
@@ -573,6 +655,10 @@ function formatearCuit(cuit) {
         : cuit;
 }
 function abrirAutorizacion(factura) {
+    if (letraDe(factura) !== 'C') {
+        alert(MENSAJE_ARCA_AB(letraDe(factura)));
+        return;
+    }
     facturaParaAutorizar = factura;
     const tieneCliente = Boolean(factura.clienteCuitCuil);
     elemento('autorizarTitulo').textContent = `Autorizar factura N° ${factura.numeroFactura} en ARCA`;
@@ -632,7 +718,9 @@ async function confirmarAutorizacion() {
 async function guardarFactura() {
     for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) {
         const select = elemento(id);
-        if (select.disabled || select.value === '') {
+        // La condición de IVA queda bloqueada a propósito (la define el cliente)
+        const bloqueadaAPropósito = id === 'inputCondicionIva' && select.options.length > 1;
+        if ((select.disabled && !bloqueadaAPropósito) || select.value === '') {
             throw new Error('Seleccioná un punto de venta, una moneda y una condición de IVA disponibles.');
         }
     }
@@ -686,6 +774,8 @@ function seleccionarCliente(cliente) {
         : 'CF';
     // "Quitar cliente" solo tiene sentido si hay un cliente elegido
     elemento('btnQuitarCliente').classList.toggle('oculto', cliente === null);
+    aplicarCondicionDelCliente();
+    actualizarLetra();
 }
 function nombreCompleto(cliente) {
     return [cliente.nombre, cliente.apellido].filter(Boolean).join(' ');
@@ -781,6 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
         buscarEnExplorer = () => { };
     });
     elemento('inputListaPrecio').addEventListener('change', cambiarListaPrecio);
+    elemento('inputPuntoVenta').addEventListener('change', actualizarLetra);
     elemento('btnConfirmarAutorizar').addEventListener('click', () => {
         void ejecutar(confirmarAutorizacion);
     });
