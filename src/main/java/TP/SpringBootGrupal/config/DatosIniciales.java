@@ -35,9 +35,9 @@ public class DatosIniciales implements CommandLineRunner {
     public static final List<String[]> CLIENTES_PRUEBA = List.of(
             new String[]{"20123456786", "Librería Centro", "Juan", "Pérez", "6"},
             new String[]{"27234567891", "Escuela Norte", "María", "González", "4"},
-            new String[]{"30712345674", "Distribuidora del Sur S.A.", "Carlos", "Rodríguez", "1"},
-            new String[]{"20345678905", "Kiosco La Esquina", "Lucas", "Fernández", "6"},
-            new String[]{"33698765439", "Papelera Mendoza S.R.L.", "Ana", "Martínez", "1"},
+            new String[]{"30712345671", "Distribuidora del Sur S.A.", "Carlos", "Rodríguez", "1"},
+            new String[]{"20345678906", "Kiosco La Esquina", "Lucas", "Fernández", "6"},
+            new String[]{"33698765432", "Papelera Mendoza S.R.L.", "Ana", "Martínez", "1"},
             new String[]{"20287654325", "Ferretería El Tornillo", "Diego", "López", "6"},
             new String[]{"27314567892", "Panadería Doña Rosa", "Rosa", "Sánchez", "6"},
             new String[]{"30709988774", "Constructora Andes S.A.", "Martín", "Gómez", "1"},
@@ -59,6 +59,16 @@ public class DatosIniciales implements CommandLineRunner {
             new String[]{"20334447775", "Emanuel Mateo", "Emanuel", "Mateo", "6"},
             new String[]{"20405556678", "Enzo Mellimaci", "Enzo", "Mellimaci", "4"},
             new String[]{"20368889998", "Juan Sebastián Cabrera", "Juan Sebastián", "Cabrera", "1"}
+    );
+
+    /**
+     * CUIT de prueba que se habían cargado con el dígito verificador mal calculado → CUIT corregido.
+     * Al arrancar, los clientes que todavía tienen el viejo pasan al corregido (no se duplican).
+     */
+    public static final java.util.Map<String, String> CUITS_CORREGIDOS = java.util.Map.of(
+            "30712345674", "30712345671",
+            "20345678905", "20345678906",
+            "33698765439", "33698765432"
     );
 
     private final ClienteRepository clienteRepository;
@@ -84,6 +94,7 @@ public class DatosIniciales implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
+        corregirCuits();
         completarNombresFaltantes();
 
         List<String[]> faltantes = CLIENTES_PRUEBA.stream()
@@ -134,6 +145,19 @@ public class DatosIniciales implements CommandLineRunner {
 
     private Optional<CondicionIva> condicion(String[] datos) {
         return condicionIvaRepository.findFirstByCodigoAfip(Integer.parseInt(datos[4]));
+    }
+
+    private void corregirCuits() {
+        CUITS_CORREGIDOS.forEach((viejo, corregido) -> {
+            if (clienteRepository.findFirstByCuit(corregido).isPresent()) {
+                return;
+            }
+            clienteRepository.findFirstByCuit(viejo).ifPresent(cliente -> {
+                cliente.setCuit(corregido);
+                clienteRepository.save(cliente);
+                log.info("Se corrigió el CUIT {} → {} ({})", viejo, corregido, cliente.getDenominacion());
+            });
+        });
     }
 
     /** Completa nombre/apellido y categoría de IVA de los clientes de prueba que ya estaban cargados. */

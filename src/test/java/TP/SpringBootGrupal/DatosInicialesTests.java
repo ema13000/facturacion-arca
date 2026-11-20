@@ -91,8 +91,8 @@ class DatosInicialesTests {
     }
 
     @Test
-    void losClientesNuevosTienenCuitConDigitoVerificadorValido() {
-        for (String[] datos : DatosIniciales.CLIENTES_PRUEBA.subList(5, 25)) {
+    void todosLosClientesTienenCuitConDigitoVerificadorValido() {
+        for (String[] datos : DatosIniciales.CLIENTES_PRUEBA) {
             assertTrue(cuitValido(datos[0]), "CUIT inválido: " + datos[0]);
         }
     }
