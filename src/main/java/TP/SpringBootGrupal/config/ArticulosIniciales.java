@@ -58,10 +58,6 @@ public class ArticulosIniciales implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        if (articuloRepository.count() >= CANTIDAD_ARTICULOS) {
-            return;
-        }
-
         List<Usuario> usuarios = usuarioRepository.findAll();
         if (usuarios.isEmpty()) {
             log.warn("No hay usuarios cargados: no se pueden crear los artículos de prueba");
@@ -70,6 +66,78 @@ public class ArticulosIniciales implements CommandLineRunner {
 
         Usuario usuario = usuarios.get(0);
         Date ahora = new Date();
+
+        cargarArticulos(usuario, ahora);
+        prepararMinoristaYMayorista(usuario, ahora);
+    }
+
+    public static final String MINORISTA = "Minorista";
+    public static final String MAYORISTA = "Mayorista";
+    /** Mayorista = Minorista con 15% de descuento. */
+    public static final double DESCUENTO_MAYORISTA = 0.15;
+
+    /**
+     * "Lista general" pasa a llamarse Minorista y se crea Mayorista con los mismos artículos
+     * un 15% más baratos. Si ya existen, solo completa los precios que falten.
+     */
+    private void prepararMinoristaYMayorista(Usuario usuario, Date ahora) {
+        List<ListaPrecio> listas = listaPrecioRepository.findByFechaBajaIsNullOrderByDenominacion();
+
+        ListaPrecio minorista = listas.stream()
+                .filter(l -> MINORISTA.equalsIgnoreCase(l.getDenominacion()))
+                .findFirst()
+                .orElse(null);
+        if (minorista == null) {
+            minorista = listas.stream()
+                    .filter(l -> "Lista general".equalsIgnoreCase(l.getDenominacion()))
+                    .findFirst()
+                    .orElse(null);
+            if (minorista == null) {
+                return;
+            }
+            minorista.setDenominacion(MINORISTA);
+            minorista.setCodigo("MIN");
+            minorista.setFechaModificacion(ahora);
+            minorista.setUsuarioModificacion(usuario);
+            minorista = listaPrecioRepository.save(minorista);
+        }
+
+        ListaPrecio mayorista = listas.stream()
+                .filter(l -> MAYORISTA.equalsIgnoreCase(l.getDenominacion()))
+                .findFirst()
+                .orElse(null);
+        if (mayorista == null) {
+            mayorista = new ListaPrecio();
+            mayorista.setCodigo("MAY");
+            mayorista.setDenominacion(MAYORISTA);
+            auditar(mayorista, usuario, ahora);
+            mayorista = listaPrecioRepository.save(mayorista);
+        }
+
+        int creados = 0;
+        for (ListaPrecioArticulo base : listaPrecioArticuloRepository.findByListaPrecio_Id(minorista.getId())) {
+            if (base.getFechaBaja() != null || listaPrecioArticuloRepository
+                    .existsByListaPrecio_IdAndArticulo_Id(mayorista.getId(), base.getArticulo().getId())) {
+                continue;
+            }
+            ListaPrecioArticulo precio = new ListaPrecioArticulo();
+            precio.setArticulo(base.getArticulo());
+            precio.setListaPrecio(mayorista);
+            precio.setPrecioVenta(Math.round(base.getPrecioVenta() * (1 - DESCUENTO_MAYORISTA)));
+            auditar(precio, usuario, ahora);
+            listaPrecioArticuloRepository.save(precio);
+            creados++;
+        }
+        if (creados > 0) {
+            log.info("Se cargaron {} precios en la lista Mayorista", creados);
+        }
+    }
+
+    private void cargarArticulos(Usuario usuario, Date ahora) {
+        if (articuloRepository.count() >= CANTIDAD_ARTICULOS) {
+            return;
+        }
+
         List<ListaPrecio> listas = obtenerListas(usuario, ahora);
         int creados = 0;
 
@@ -100,6 +168,7 @@ public class ArticulosIniciales implements CommandLineRunner {
         log.info("Se cargaron {} artículos de prueba", creados);
     }
 
+
     private List<ListaPrecio> obtenerListas(Usuario usuario, Date ahora) {
         List<ListaPrecio> listas = listaPrecioRepository.findByFechaBajaIsNullOrderByDenominacion();
         if (!listas.isEmpty()) {
@@ -107,8 +176,8 @@ public class ArticulosIniciales implements CommandLineRunner {
         }
 
         ListaPrecio general = new ListaPrecio();
-        general.setCodigo("GEN");
-        general.setDenominacion("Lista general");
+        general.setCodigo("MIN");
+        general.setDenominacion(MINORISTA);
         auditar(general, usuario, ahora);
         return List.of(listaPrecioRepository.save(general));
     }

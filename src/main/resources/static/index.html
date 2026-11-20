@@ -6,7 +6,7 @@
     <title>Sistema de Facturación</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-    <link rel="stylesheet" href="./style.css?v=8">
+    <link rel="stylesheet" href="./style.css?v=9">
 </head>
 <body>
 
@@ -170,7 +170,12 @@
                     <button type="button" id="btnVolver" class="btn-secundario btn-chico">← Volver al listado</button>
                 </div>
 
-                <div class="grilla-form">
+                <div class="grilla-form grilla-comprobante">
+                    <div class="campo">
+                        <label for="inputFechaEmision">Fecha de emisión</label>
+                        <input type="date" id="inputFechaEmision" required>
+                        <small class="ayuda-input">Hasta 5 días antes o después de hoy (regla de ARCA).</small>
+                    </div>
                     <div class="campo">
                         <label for="inputPuntoVenta">Punto de venta</label>
                         <select id="inputPuntoVenta" required disabled>
@@ -183,23 +188,7 @@
                             <option value="">Cargando monedas...</option>
                         </select>
                     </div>
-                    <div class="campo">
-                        <label for="inputCondicionIva">Condición de IVA del cliente</label>
-                        <select id="inputCondicionIva" required disabled>
-                            <option value="">Cargando condiciones de IVA...</option>
-                        </select>
-                        <small class="ayuda-input" id="ayudaCondicionIva">Sin cliente: Consumidor Final.</small>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel">
-                <div class="panel-titulo">
-                    <span>2. Cliente</span>
-                </div>
-
-                <div class="grilla-form">
-                    <div class="campo campo-ancho">
+                    <div class="campo campo-cliente">
                         <label for="btnBuscarCliente">Cliente</label>
                         <input type="hidden" id="inputCliente">
                         <input type="hidden" id="clienteDescripcion" value="Consumidor final">
@@ -219,29 +208,30 @@
                             </button>
                             <button type="button" id="btnQuitarCliente" class="btn-secundario oculto" title="Volver a consumidor final">✕ Quitar cliente</button>
                         </div>
+                        <small class="ayuda-input">Si no elegís un cliente, se factura a consumidor final.</small>
                     </div>
-
+                    <div class="campo">
+                        <label for="inputCondicionIva">Condición de IVA del cliente</label>
+                        <select id="inputCondicionIva" required disabled>
+                            <option value="">Cargando condiciones de IVA...</option>
+                        </select>
+                        <small class="ayuda-input" id="ayudaCondicionIva">Sin cliente: Consumidor Final.</small>
+                    </div>
+                    <div class="campo campo-ancho">
+                        <label for="inputObservaciones">Observaciones</label>
+                        <textarea id="inputObservaciones" rows="2" maxlength="500"
+                                  placeholder="Opcional: condiciones de pago, entrega, etc."></textarea>
+                    </div>
                 </div>
-                <small class="ayuda-input">
-                    Si no elegís un cliente, se factura a consumidor final. El tipo de documento
-                    se indica después, al autorizar la factura en ARCA.
-                </small>
             </section>
 
             <section class="panel">
                 <div class="panel-titulo">
-                    <span>3. Artículos</span>
-                    <button type="button" id="btnSumarRenglon" class="btn-exito btn-chico">+ Sumar Renglón</button>
-                </div>
-
-                <div class="grilla-form">
-                    <div class="campo">
-                        <label for="inputListaPrecio">Lista de precios</label>
-                        <select id="inputListaPrecio" disabled>
-                            <option value="">Cargando listas de precios...</option>
-                        </select>
-                        <small class="ayuda-input">Elegila antes de buscar artículos: solo se muestran los de esta lista.</small>
-                    </div>
+                    <span>2. Artículos</span>
+                    <button type="button" id="btnBuscarArticulo" class="btn-exito btn-chico">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        Buscar artículo
+                    </button>
                 </div>
 
                 <div class="tabla-wrapper">
@@ -250,6 +240,7 @@
                         <tr>
                             <th>Código</th>
                             <th>Artículo</th>
+                            <th>Lista</th>
                             <th class="texto-derecha">Precio unit.</th>
                             <th>Cantidad</th>
                             <th>Bonificación (%)</th>
@@ -346,6 +337,43 @@
     </div>
 </dialog>
 
-<script type="module" src="./dist/app.js?v=8"></script>
+<dialog id="articuloDialog" class="explorer" aria-labelledby="articuloTitulo">
+    <div class="explorer-cabecera">
+        <h2 id="articuloTitulo">Buscar artículo</h2>
+        <button type="button" id="btnCerrarArticulo" class="btn-cerrar" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="explorer-busqueda">
+        <div class="articulo-filtros">
+            <div class="campo">
+                <label for="articuloLista">Lista de precios</label>
+                <select id="articuloLista">
+                    <option value="">Todas las listas</option>
+                </select>
+            </div>
+            <div class="campo articulo-texto">
+                <label for="articuloBusqueda">Código o nombre</label>
+                <input type="search" id="articuloBusqueda" placeholder="Ej: ART-015 o cuaderno" autocomplete="off">
+            </div>
+            <div class="articulo-botones">
+                <button type="button" id="btnArticuloBuscar" class="btn-primario">Buscar</button>
+                <button type="button" id="btnArticuloTodos" class="btn-secundario" title="Quitar filtros y ver todos los artículos">Ver todos</button>
+            </div>
+        </div>
+        <p id="articuloEstado" class="explorer-estado" role="status" aria-live="polite"></p>
+    </div>
+    <div class="tabla-wrapper">
+        <table>
+            <thead><tr><th>Código</th><th>Artículo</th><th>Lista</th><th class="texto-derecha">Precio</th><th></th></tr></thead>
+            <tbody id="articuloFilas"></tbody>
+        </table>
+    </div>
+    <div class="paginacion articulo-paginacion">
+        <button type="button" id="btnArticuloAnterior" class="btn-secundario btn-chico">← Anterior</button>
+        <span id="articuloPagina"></span>
+        <button type="button" id="btnArticuloSiguiente" class="btn-secundario btn-chico">Siguiente →</button>
+    </div>
+</dialog>
+
+<script type="module" src="./dist/app.js?v=9"></script>
 </body>
 </html>

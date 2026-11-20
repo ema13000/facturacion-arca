@@ -237,6 +237,9 @@ public class FacturaServiceImpl implements FacturaService {
             );
         }
 
+        factura.setFechaEmision(fechaEmisionValida(dto.fechaEmision()));
+        factura.setObservaciones(observacionesValidas(dto.observaciones()));
+
         if (!Double.isFinite(porcentajeIva) || porcentajeIva < 0) {
             throw new IllegalArgumentException(
                     "El porcentaje de IVA debe ser un número no negativo"
@@ -412,6 +415,34 @@ public class FacturaServiceImpl implements FacturaService {
                 .orElseThrow(() -> new RecursoNoEncontradoException("No existe la condición de IVA"));
     }
 
+    private static final java.time.ZoneId ZONA_ARGENTINA = java.time.ZoneId.of("America/Argentina/Buenos_Aires");
+    /** ARCA acepta comprobantes de productos hasta 5 días antes o después de la fecha actual. */
+    public static final int DIAS_TOLERANCIA_FECHA = 5;
+    public static final int MAXIMO_OBSERVACIONES = 500;
+
+    private Date fechaEmisionValida(java.time.LocalDate pedida) {
+        java.time.LocalDate hoy = java.time.LocalDate.now(ZONA_ARGENTINA);
+        java.time.LocalDate fecha = pedida == null ? hoy : pedida;
+        if (fecha.isBefore(hoy.minusDays(DIAS_TOLERANCIA_FECHA)) || fecha.isAfter(hoy.plusDays(DIAS_TOLERANCIA_FECHA))) {
+            throw new IllegalArgumentException(
+                    "La fecha de emisión puede estar hasta " + DIAS_TOLERANCIA_FECHA
+                            + " días antes o después de hoy (regla de ARCA)");
+        }
+        return java.sql.Date.valueOf(fecha);
+    }
+
+    private String observacionesValidas(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return null;
+        }
+        String limpio = texto.trim();
+        if (limpio.length() > MAXIMO_OBSERVACIONES) {
+            throw new IllegalArgumentException(
+                    "Las observaciones pueden tener hasta " + MAXIMO_OBSERVACIONES + " caracteres");
+        }
+        return limpio;
+    }
+
     private ListaPrecioArticulo buscarPrecio(Long listaPrecioArticuloId) {
         if (listaPrecioArticuloId == null || listaPrecioArticuloId <= 0) {
             throw new IllegalArgumentException("Seleccioná un artículo de una lista de precios");
@@ -500,7 +531,10 @@ public class FacturaServiceImpl implements FacturaService {
 
         factura.setEstado("ANULADA");
         factura.setFechaAnulacion(ahora);
-        factura.setObservaciones(observaciones);
+        String motivo = "Anulada: " + (observaciones == null || observaciones.isBlank() ? "sin motivo" : observaciones.trim());
+        factura.setObservaciones(factura.getObservaciones() == null || factura.getObservaciones().isBlank()
+                ? motivo
+                : factura.getObservaciones() + " | " + motivo);
         factura.setFechaModificacion(ahora);
         factura.setUsuarioModificacion(usuario);
 

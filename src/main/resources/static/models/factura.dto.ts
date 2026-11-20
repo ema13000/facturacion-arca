@@ -10,6 +10,8 @@ export interface FacturaRequestDTO {
     tipoMonedaId: number;
     puntoVentaId: number;
     detalles: FacturaDetalleRequestDTO[];
+    fechaEmision: string | null;
+    observaciones: string | null;
 }
 
 export interface FacturaReporteDTO {
@@ -38,6 +40,13 @@ export interface FacturaFiltrosDTO {
 
 export interface FacturaEdicionDTO extends FacturaRequestDTO {
     numeroFactura: number;
+}
+
+export interface PaginaDTO<T> {
+    contenido: T[];
+    pagina: number;
+    totalPaginas: number;
+    totalElementos: number;
 }
 
 export interface OpcionDTO {

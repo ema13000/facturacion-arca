@@ -42,11 +42,12 @@ public class CatalogoRestController {
     }
 
     @GetMapping("/precios-articulos")
-    public List<PrecioArticuloExplorerDTO> buscarPreciosArticulos(
-            @RequestParam("listaPrecioId") Long listaPrecioId,
-            @RequestParam(value = "texto", defaultValue = "") String texto
+    public TP.SpringBootGrupal.dtos.PaginaDTO<PrecioArticuloExplorerDTO> buscarPreciosArticulos(
+            @RequestParam(value = "listaPrecioId", required = false) Long listaPrecioId,
+            @RequestParam(value = "texto", defaultValue = "") String texto,
+            @RequestParam(value = "pagina", defaultValue = "0") int pagina
     ) {
-        return service.buscarPreciosArticulos(listaPrecioId, texto);
+        return service.buscarPreciosArticulos(listaPrecioId, texto, pagina);
     }
 
     @GetMapping("/precios-articulos/por-codigo")

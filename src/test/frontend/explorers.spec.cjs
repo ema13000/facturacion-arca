@@ -27,11 +27,22 @@ const listas = [
     { id: 1, descripcion: 'Minorista' },
     { id: 2, descripcion: 'Mayorista' }
 ];
+const TAMANIO_PAGINA = 20;
 const precios = [
     { id: 25, articuloCodigo: 'A8', articuloDenominacion: 'Cuaderno', listaPrecioDenominacion: 'Minorista', precioVenta: 100, listaPrecioId: 1 },
     { id: 26, articuloCodigo: 'A8', articuloDenominacion: 'Cuaderno', listaPrecioDenominacion: 'Mayorista', precioVenta: 80, listaPrecioId: 2 },
-    { id: 27, articuloCodigo: 'B1', articuloDenominacion: 'Lápiz', listaPrecioDenominacion: 'Minorista', precioVenta: 10, listaPrecioId: 1 }
+    { id: 27, articuloCodigo: 'B1', articuloDenominacion: 'Lápiz', listaPrecioDenominacion: 'Minorista', precioVenta: 10, listaPrecioId: 1 },
+    // Relleno para probar la paginación: 42 resmas más (45 precios en total)
+    ...Array.from({ length: 42 }, (_, i) => ({
+        id: 100 + i, articuloCodigo: `R-${String(i + 1).padStart(2, '0')}`, articuloDenominacion: `Resma ${i + 1}`,
+        listaPrecioDenominacion: i % 2 === 0 ? 'Minorista' : 'Mayorista', precioVenta: 500, listaPrecioId: i % 2 === 0 ? 1 : 2
+    }))
 ];
+const hoyISO = (dias = 0) => {
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() + dias);
+    return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+};
 const reporte = { id: 1, numeroFactura: 1, fechaEmision: '2026-10-23', clienteDenominacion: 'Librería Centro', condicionIva: 'IVA', puntoVentaDescripcion: 'Centro', importeTotal: 100, estado: 'PENDIENTE' };
 const coincide = (texto, valores) => valores.join(' ').toLowerCase().includes((texto ?? '').toLowerCase());
 
@@ -65,8 +76,14 @@ test.beforeEach(async ({ page }) => {
         else if (url.pathname.endsWith('/condiciones-iva')) body = condiciones;
         else if (url.pathname.endsWith('/puntos-venta')) body = puntosVenta;
         else if (url.pathname.endsWith('/precios-articulos')) {
-            const lista = Number(url.searchParams.get('listaPrecioId'));
-            body = precios.filter(p => p.listaPrecioId === lista && coincide(texto, [p.articuloCodigo, p.articuloDenominacion]));
+            const lista = Number(url.searchParams.get('listaPrecioId') || 0);
+            const pagina = Number(url.searchParams.get('pagina') || 0);
+            const filtrados = precios.filter(p => (lista === 0 || p.listaPrecioId === lista)
+                && coincide(texto, [p.articuloCodigo, p.articuloDenominacion]));
+            body = {
+                contenido: filtrados.slice(pagina * TAMANIO_PAGINA, (pagina + 1) * TAMANIO_PAGINA),
+                pagina, totalPaginas: Math.ceil(filtrados.length / TAMANIO_PAGINA), totalElementos: filtrados.length
+            };
         }
         else if (url.pathname.endsWith('/precios-articulos/por-codigo')) {
             const lista = Number(url.searchParams.get('listaPrecioId'));
@@ -81,7 +98,8 @@ test.beforeEach(async ({ page }) => {
         else if (/\/precios-articulos\/\d+$/.test(url.pathname)) body = precios.find(p => url.pathname.endsWith('/' + p.id));
         else if (url.pathname.endsWith('/edicion')) body = {
             numeroFactura: 1, clienteId: 7, condicionIvaId: 1, tipoMonedaId: 1, puntoVentaId: 1,
-            detalles: [{ listaPrecioArticuloId: 26, cantidad: 2, porcentajeBonificacion: 0 }]
+            detalles: [{ listaPrecioArticuloId: 26, cantidad: 2, porcentajeBonificacion: 0 }],
+            fechaEmision: hoyISO(-2), observaciones: 'Pago contado'
         };
         else if (url.pathname === '/api/facturas') body = route.request().method() === 'GET' ? [reporte] : reporte;
         await route.fulfill({ json: body });
@@ -92,6 +110,16 @@ test.beforeEach(async ({ page }) => {
 async function buscar(page, texto) {
     await page.locator('#explorerBusqueda').fill(texto);
     await page.locator('#btnExplorerBuscar').click();
+}
+
+// Abre "Buscar artículo", filtra (lista opcional) y agrega el primer resultado como renglón nuevo
+async function agregarArticulo(page, texto, lista = '') {
+    await page.locator('#btnBuscarArticulo').click();
+    await page.locator('#articuloLista').selectOption(lista);
+    await page.locator('#articuloBusqueda').fill(texto);
+    await page.locator('#btnArticuloBuscar').click();
+    await page.locator('#articuloFilas').getByRole('button', { name: 'Agregar' }).first().click();
+    await expect(page.locator('#articuloDialog')).not.toBeVisible();
 }
 
 test('no muestra usuario ni IVA en la parte superior', async ({ page }) => {
@@ -127,30 +155,44 @@ test('busca clientes en el servidor con el botón y permite consumidor final', a
     await expect(page.locator('#btnQuitarCliente')).toBeHidden();
 });
 
-test('exige elegir la lista de precios antes de buscar artículos y filtra por ella', async ({ page }) => {
+test('buscar artículo abre un buscador que pagina de a 20 y filtra por lista, código o nombre', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    await expect(page.locator('[data-buscar-precio]').first()).toBeDisabled();
-    await page.locator('#inputListaPrecio').selectOption('2');
-    await expect(page.locator('[data-buscar-precio]').first()).toBeEnabled();
-    await page.locator('[data-buscar-precio]').first().click();
-    await buscar(page, '');
-    await expect(page.locator('#explorerFilas tr')).toHaveCount(1);
-    await expect(page.locator('#explorerFilas')).toContainText('Cuaderno');
-    const pedido = page.pedidos.find(u => u.pathname.endsWith('/precios-articulos'));
+    await page.locator('#btnBuscarArticulo').click();
+    const dialogo = page.locator('#articuloDialog');
+    await expect(dialogo).toBeVisible();
+    // Al abrir trae la primera página sin filtros
+    await expect(page.locator('#articuloFilas tr')).toHaveCount(20);
+    await expect(page.locator('#articuloPagina')).toHaveText('Página 1 de 3 · 45 artículos');
+    await expect(page.locator('#btnArticuloAnterior')).toBeDisabled();
+    await page.locator('#btnArticuloSiguiente').click();
+    await expect(page.locator('#articuloPagina')).toHaveText('Página 2 de 3 · 45 artículos');
+    expect(page.pedidos.filter(u => u.pathname.endsWith('/precios-articulos')).at(-1).searchParams.get('pagina')).toBe('1');
+    await page.locator('#btnArticuloSiguiente').click();
+    await expect(page.locator('#articuloFilas tr')).toHaveCount(5);
+    await expect(page.locator('#btnArticuloSiguiente')).toBeDisabled();
+    // Filtro por lista y por nombre
+    await page.locator('#articuloLista').selectOption('2');
+    await page.locator('#articuloBusqueda').fill('cuaderno');
+    await page.locator('#btnArticuloBuscar').click();
+    await expect(page.locator('#articuloFilas tr')).toHaveCount(1);
+    await expect(page.locator('#articuloFilas')).toContainText('Mayorista');
+    const pedido = page.pedidos.filter(u => u.pathname.endsWith('/precios-articulos')).at(-1);
     expect(pedido.searchParams.get('listaPrecioId')).toBe('2');
+    expect(pedido.searchParams.get('texto')).toBe('cuaderno');
+    expect(pedido.searchParams.get('pagina')).toBe('0');
+    // "Ver todos" quita los filtros
+    await page.locator('#btnArticuloTodos').click();
+    await expect(page.locator('#articuloLista')).toHaveValue('');
+    await expect(page.locator('#articuloBusqueda')).toHaveValue('');
+    await expect(page.locator('#articuloPagina')).toHaveText('Página 1 de 3 · 45 artículos');
 });
 
-test('elige precios, calcula el total, envía el ID y conserva renglones al quitar otro', async ({ page }) => {
+test('elige precios, calcula el total, envía el ID, la fecha y las observaciones', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    await page.locator('[data-buscar-precio]').first().click();
-    await buscar(page, 'cuaderno');
-    await page.locator('#explorerFilas button').click();
+    await agregarArticulo(page, 'cuaderno', '1');
     await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
-    await page.locator('#btnSumarRenglon').click();
-    await page.locator('[data-buscar-precio]').nth(1).click();
-    await buscar(page, 'lápiz');
-    await page.locator('#explorerFilas button').click();
+    await agregarArticulo(page, 'lápiz');
+    await expect(page.locator('#tbodyRenglones tr')).toHaveCount(2);
     await expect(page.locator('#totalFactura')).toHaveText('$110.00');
     await page.locator('#tbodyRenglones tr').first().getByRole('button', { name: 'Quitar' }).click();
     await expect(page.locator('#tbodyRenglones tr')).toHaveCount(1);
@@ -158,6 +200,8 @@ test('elige precios, calcula el total, envía el ID y conserva renglones al quit
     await expect(page.locator('#inputNumero')).toHaveCount(0);
     await expect(page.locator('#seccionAlta')).not.toContainText('Número de factura');
     for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
+    await page.locator('#inputFechaEmision').fill(hoyISO(-1));
+    await page.locator('#inputObservaciones').fill('  Entregar a la tarde ');
     page.on('dialog', dialog => dialog.accept());
     const request = page.waitForRequest(req => req.method() === 'POST' && req.url().includes('/api/facturas'));
     await page.locator('#btnGuardarFactura').click();
@@ -169,32 +213,38 @@ test('elige precios, calcula el total, envía el ID y conserva renglones al quit
     const dto = enviada.postDataJSON();
     expect(dto.detalles[0].listaPrecioArticuloId).toBe(27);
     expect(dto.condicionIvaId).toBe(1);
+    expect(dto.fechaEmision).toBe(hoyISO(-1));
+    expect(dto.observaciones).toBe('Entregar a la tarde');
     await expect(page.locator('#seccionListado')).toBeVisible();
 });
 
-test('cambiar de lista de precios limpia los artículos elegidos', async ({ page }) => {
+test('elegir el mismo artículo otra vez suma un renglón nuevo y se pueden mezclar listas', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    await page.locator('[data-buscar-precio]').first().click();
-    await buscar(page, 'cuaderno');
-    await page.locator('#explorerFilas button').click();
-    page.on('dialog', dialog => dialog.accept());
-    await page.locator('#inputListaPrecio').selectOption('2');
-    await expect(page.locator('#tbodyRenglones')).toContainText('Sin artículo seleccionado');
+    await agregarArticulo(page, 'cuaderno', '1');
+    await agregarArticulo(page, 'cuaderno', '1');
+    await agregarArticulo(page, 'cuaderno', '2');
+    const filas = page.locator('#tbodyRenglones tr');
+    await expect(filas).toHaveCount(3);
+    await expect(filas.nth(0)).toContainText('Minorista');
+    await expect(filas.nth(2)).toContainText('Mayorista');
+    await expect(page.locator('#totalFactura')).toHaveText('$280.00');
 });
 
-test('edición trae cliente, lista y precio por ID sin cargar todo el catálogo', async ({ page }) => {
+test('edición trae cliente, precio, fecha y observaciones por ID sin cargar todo el catálogo', async ({ page }) => {
     await page.getByRole('button', { name: 'Editar', exact: true }).click();
     await expect(page.locator('#clienteDescripcion')).toHaveValue('Librería Centro');
     await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
-    await expect(page.locator('#inputListaPrecio')).toHaveValue('2');
+    await expect(page.locator('#tbodyRenglones')).toContainText('Mayorista');
+    await expect(page.locator('#inputFechaEmision')).toHaveValue(hoyISO(-2));
+    await expect(page.locator('#inputObservaciones')).toHaveValue('Pago contado');
     expect(page.pedidos.some(u => u.pathname.endsWith('/clientes') || u.pathname.endsWith('/precios-articulos'))).toBe(false);
-    await page.locator('[data-buscar-precio]').click();
-    await buscar(page, 'inexistente');
-    await expect(page.locator('#explorerFilas')).toContainText('No hay resultados');
+    await page.locator('#btnBuscarArticulo').click();
+    await page.locator('#articuloBusqueda').fill('inexistente');
+    await page.locator('#btnArticuloBuscar').click();
+    await expect(page.locator('#articuloFilas')).toContainText('No hay artículos');
     await page.keyboard.press('Escape');
-    await expect(page.locator('#explorerDialog')).not.toBeVisible();
-    await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
+    await expect(page.locator('#articuloDialog')).not.toBeVisible();
+    await expect(page.locator('#tbodyRenglones tr')).toHaveCount(1);
 });
 
 test('un error del explorer se informa y permite reintentar', async ({ page }) => {
@@ -208,13 +258,14 @@ test('un error del explorer se informa y permite reintentar', async ({ page }) =
     await expect(page.locator('#explorerFilas button')).toHaveCount(2);
 });
 
-test('no guarda renglones sin seleccionar un precio', async ({ page }) => {
+test('no guarda una factura sin artículos', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputListaPrecio']) await page.locator('#' + id).selectOption('1');
+    await expect(page.locator('#tbodyRenglones')).toContainText('Todavía no agregaste artículos');
+    for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
     const dialogo = page.waitForEvent('dialog');
     const guardar = page.locator('#btnGuardarFactura').click();
     const alerta = await dialogo;
-    expect(alerta.message()).toContain('Seleccioná un artículo');
+    expect(alerta.message()).toContain('Agregá al menos un artículo');
     await alerta.accept();
     await guardar;
     await expect(page.locator('#seccionAlta')).toBeVisible();
@@ -336,10 +387,7 @@ test('después de guardar, la factura nueva queda resaltada arriba del listado',
         ? [{ ...reporte, id: 2, numeroFactura: 2 }, reporte]
         : { ...reporte, id: 2, numeroFactura: 2 } }));
     await page.locator('#tabNueva').click();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    await page.locator('[data-buscar-precio]').first().click();
-    await buscar(page, 'cuaderno');
-    await page.locator('#explorerFilas button').click();
+    await agregarArticulo(page, 'cuaderno', '1');
     for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
     page.on('dialog', dialog => dialog.accept());
     await page.locator('#btnGuardarFactura').click();
@@ -349,10 +397,7 @@ test('después de guardar, la factura nueva queda resaltada arriba del listado',
 
 test('muestra subtotal, bonificación y total mientras se cargan artículos', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    await page.locator('[data-buscar-precio]').first().click();
-    await buscar(page, 'cuaderno');
-    await page.locator('#explorerFilas button').click();
+    await agregarArticulo(page, 'cuaderno', '1');
     const fila = page.locator('#tbodyRenglones tr').first();
     await fila.locator('input[type=number]').nth(0).fill('3');
     await fila.locator('input[type=number]').nth(1).fill('10');
@@ -381,40 +426,31 @@ test('tocando la tarjeta del cliente se abre el buscador, sin botón aparte', as
     await expect(tarjeta).toContainText('María González');
 });
 
-test('cargar un artículo escribiendo su código y Enter', async ({ page }) => {
+test('el buscador encuentra un artículo por su código', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
-    await expect(codigo).toBeDisabled();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    await codigo.fill('b1');
-    await codigo.press('Enter');
+    await agregarArticulo(page, 'b1');
     await expect(page.locator('#tbodyRenglones')).toContainText('Lápiz');
-    await expect(codigo).toHaveValue('B1');
+    await expect(page.locator('#tbodyRenglones tr').first().locator('td').first()).toHaveText('B1');
     await expect(page.locator('#totalFactura')).toHaveText('$10.00');
-    const pedido = page.pedidos.find(u => u.pathname.endsWith('/por-codigo'));
-    expect(pedido.searchParams.get('listaPrecioId')).toBe('1');
+    const pedido = page.pedidos.filter(u => u.pathname.endsWith('/precios-articulos')).at(-1);
+    expect(pedido.searchParams.get('texto')).toBe('b1');
+    expect(pedido.searchParams.has('listaPrecioId')).toBe(false);
 });
 
-test('un código inexistente se avisa y no carga nada', async ({ page }) => {
+test('los artículos se agregan solo con Buscar artículo: sin renglón vacío, lupa ni código editable', async ({ page }) => {
     await page.locator('#tabNueva').click();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
-    await codigo.fill('ZZZ-1');
-    const dialogo = page.waitForEvent('dialog');
-    await codigo.press('Enter');
-    const alerta = await dialogo;
-    expect(alerta.message()).toContain('ZZZ-1');
-    await alerta.accept();
-    await expect(page.locator('#tbodyRenglones')).toContainText('Sin artículo seleccionado');
+    await expect(page.locator('#btnSumarRenglon')).toHaveCount(0);
+    await expect(page.locator('#inputListaPrecio')).toHaveCount(0);
+    await expect(page.locator('#btnBuscarArticulo')).toContainText('Buscar artículo');
+    await agregarArticulo(page, 'cuaderno', '1');
+    await expect(page.locator('#tbodyRenglones [data-codigo]')).toHaveCount(0);
+    await expect(page.locator('#tbodyRenglones [data-buscar-precio]')).toHaveCount(0);
 });
 
 test('guardar deja la factura pendiente y no la manda a ARCA', async ({ page }) => {
     await expect(page.locator('#inputTipoDocumentoArca')).toHaveCount(0);
     await page.locator('#tabNueva').click();
-    await page.locator('#inputListaPrecio').selectOption('1');
-    const codigo = page.locator('#tbodyRenglones [data-codigo]').first();
-    await codigo.fill('A8');
-    await codigo.press('Enter');
+    await agregarArticulo(page, 'A8', '1');
     await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
     for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
     const mensajes = [];
@@ -513,10 +549,7 @@ test('en Factura A se ve el IVA 21% discriminado y en C no', async ({ page }) =>
     await page.locator('#tabNueva').click();
     await page.locator('#inputPuntoVenta').selectOption('2');
     await elegirCliente(page, 'librería');
-    await page.locator('#inputListaPrecio').selectOption('1');
-    await page.locator('[data-buscar-precio]').first().click();
-    await buscar(page, 'cuaderno');
-    await page.locator('#explorerFilas button').click();
+    await agregarArticulo(page, 'cuaderno', '1');
     await page.locator('#tbodyRenglones input[type=number]').first().fill('121');
     await expect(page.locator('#filaIvaFactura')).toBeVisible();
     await expect(page.locator('#etiquetaIvaFactura')).toHaveText('IVA 21% (discriminado)');
@@ -564,3 +597,24 @@ test('imprimir una Factura A muestra la letra y el IVA', async ({ page }) => {
     await expect(ventana.locator('body')).toContainText('Neto gravado: $1,000.00');
     await expect(ventana.locator('body')).toContainText('IVA 21%: $210.00');
 });
+
+test('el cliente está dentro de Datos del comprobante, entre moneda y condición de IVA', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    const datos = page.locator('#seccionAlta .panel').first();
+    await expect(datos.locator('.campo > label')).toHaveText([
+        'Fecha de emisión', 'Punto de venta', 'Tipo de moneda', 'Cliente', 'Condición de IVA del cliente', 'Observaciones'
+    ]);
+    await expect(page.locator('#seccionAlta .panel-titulo > span:first-child')).toHaveText([
+        /^1\. Datos del comprobante/, '2. Artículos'
+    ]);
+});
+
+test('la fecha de emisión arranca en hoy y solo permite 5 días antes o después', async ({ page }) => {
+    await page.locator('#tabNueva').click();
+    const fecha = page.locator('#inputFechaEmision');
+    await expect(fecha).toHaveValue(hoyISO());
+    await expect(fecha).toHaveAttribute('min', hoyISO(-5));
+    await expect(fecha).toHaveAttribute('max', hoyISO(5));
+    await expect(page.locator('#inputObservaciones')).toHaveAttribute('maxlength', '500');
+});
+

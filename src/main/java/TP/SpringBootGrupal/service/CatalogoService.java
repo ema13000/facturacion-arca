@@ -80,16 +80,20 @@ public class CatalogoService {
     }
 
     @Transactional(readOnly = true)
-    public List<PrecioArticuloExplorerDTO> buscarPreciosArticulos(Long listaPrecioId, String texto) {
-        if (listaPrecioId == null || listaPrecioId <= 0) {
-            throw new IllegalArgumentException("Seleccioná primero una lista de precios");
-        }
+    public TP.SpringBootGrupal.dtos.PaginaDTO<PrecioArticuloExplorerDTO> buscarPreciosArticulos(
+            Long listaPrecioId, String texto, int pagina) {
+        Long lista = listaPrecioId == null || listaPrecioId <= 0 ? null : listaPrecioId;
+        int numero = Math.max(pagina, 0);
 
-        return listaPrecioArticuloRepository
-                .buscar(listaPrecioId, normalizar(texto), primeraPagina()).stream()
-                .filter(this::estaActivo)
-                .map(this::aPrecioDTO)
-                .toList();
+        var resultado = listaPrecioArticuloRepository.buscarPagina(
+                lista, normalizar(texto), PageRequest.of(numero, LIMITE_RESULTADOS));
+
+        return new TP.SpringBootGrupal.dtos.PaginaDTO<>(
+                resultado.getContent().stream().map(this::aPrecioDTO).toList(),
+                numero,
+                resultado.getTotalPages(),
+                resultado.getTotalElements()
+        );
     }
 
     @Transactional(readOnly = true)

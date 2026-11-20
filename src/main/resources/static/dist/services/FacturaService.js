@@ -19,16 +19,13 @@ export class FacturaService {
     obtenerListasPrecio() {
         return this.obtenerJson(`${this.catalogosUrl}/listas-precio`);
     }
-    buscarPreciosArticulos(listaPrecioId, texto) {
-        const params = new URLSearchParams({
-            listaPrecioId: String(listaPrecioId),
-            texto
-        });
+    /** Busca por código o nombre; la lista es opcional (null = todas). Páginas de 20, empezando en 0. */
+    buscarPreciosArticulos(listaPrecioId, texto, pagina) {
+        const params = new URLSearchParams({ texto, pagina: String(pagina) });
+        if (listaPrecioId !== null) {
+            params.set('listaPrecioId', String(listaPrecioId));
+        }
         return this.obtenerJson(`${this.catalogosUrl}/precios-articulos?${params}`);
-    }
-    obtenerPrecioPorCodigo(listaPrecioId, codigo) {
-        const params = new URLSearchParams({ listaPrecioId: String(listaPrecioId), codigo });
-        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/por-codigo?${params}`);
     }
     obtenerPrecioArticulo(id) {
         return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/${id}`);

@@ -895,3 +895,63 @@ tr.fila-nueva td:first-child {
 select:disabled {
     cursor: not-allowed;
 }
+
+/* ---------- Datos del comprobante (fecha, cliente y observaciones en el mismo recuadro) ---------- */
+.grilla-comprobante {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grilla-comprobante .campo-cliente {
+    grid-column: span 2;
+}
+
+.grilla-comprobante .campo-ancho {
+    grid-column: 1 / -1;
+}
+
+.campo textarea {
+    min-height: 64px;
+    resize: vertical;
+}
+
+#btnBuscarArticulo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ---------- Buscador de artículos ---------- */
+.articulo-filtros {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(200px, 2fr) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.articulo-filtros .campo {
+    margin: 0;
+}
+
+.articulo-botones {
+    display: flex;
+    gap: 8px;
+}
+
+.articulo-paginacion {
+    justify-content: space-between;
+    padding: 12px 20px 18px;
+}
+
+@media (max-width: 900px) {
+    .grilla-comprobante {
+        grid-template-columns: 1fr;
+    }
+
+    .grilla-comprobante .campo-cliente {
+        grid-column: auto;
+    }
+
+    .articulo-filtros {
+        grid-template-columns: 1fr;
+    }
+}

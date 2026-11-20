@@ -103,7 +103,7 @@ class FacturaEstadosTests {
         var autorizada = factura(5, "AUTORIZADA");
         var resultado = servicio.anular(5L, 1L, "devolución");
         assertEquals("ANULADA", resultado.getEstado());
-        assertEquals("devolución", autorizada.getObservaciones());
+        assertEquals("Anulada: devolución", autorizada.getObservaciones());
         assertNotNull(autorizada.getFechaAnulacion());
     }
 

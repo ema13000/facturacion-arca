@@ -10,6 +10,13 @@ public record FacturaRequestDTO(
         Long condicionIvaId,
         Long tipoMonedaId,
         Long puntoVentaId,
-        List<FacturaDetalleRequestDTO> detalles
+        List<FacturaDetalleRequestDTO> detalles,
+        // Fecha del comprobante (null = hoy) y observaciones libres (opcionales)
+        java.time.LocalDate fechaEmision,
+        String observaciones
 ) {
+    public FacturaRequestDTO(Long clienteId, Long condicionIvaId, Long tipoMonedaId, Long puntoVentaId,
+                             List<FacturaDetalleRequestDTO> detalles) {
+        this(clienteId, condicionIvaId, tipoMonedaId, puntoVentaId, detalles, null, null);
+    }
 }

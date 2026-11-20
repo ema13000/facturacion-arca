@@ -11,6 +11,35 @@ import java.util.List;
 public interface ListaPrecioArticuloRepository extends JpaRepository<ListaPrecioArticulo, Long> {
     List<ListaPrecioArticulo> findByArticulo_Id(Long articuloId);
 
+    List<ListaPrecioArticulo> findByListaPrecio_Id(Long listaPrecioId);
+
+    boolean existsByListaPrecio_IdAndArticulo_Id(Long listaPrecioId, Long articuloId);
+
+    // Busca por código o nombre; la lista es opcional (null = todas). Paginado.
+    @Query(value = """
+            select p from ListaPrecioArticulo p
+            join fetch p.articulo a
+            join fetch p.listaPrecio l
+            where (:listaPrecioId is null or l.id = :listaPrecioId)
+              and p.fechaBaja is null and a.fechaBaja is null and l.fechaBaja is null
+              and (lower(a.denominacion) like lower(concat('%', :texto, '%'))
+                   or lower(a.codigo) like lower(concat('%', :texto, '%')))
+            order by a.codigo, l.denominacion
+            """, countQuery = """
+            select count(p) from ListaPrecioArticulo p
+            join p.articulo a
+            join p.listaPrecio l
+            where (:listaPrecioId is null or l.id = :listaPrecioId)
+              and p.fechaBaja is null and a.fechaBaja is null and l.fechaBaja is null
+              and (lower(a.denominacion) like lower(concat('%', :texto, '%'))
+                   or lower(a.codigo) like lower(concat('%', :texto, '%')))
+            """)
+    org.springframework.data.domain.Page<ListaPrecioArticulo> buscarPagina(
+            @Param("listaPrecioId") Long listaPrecioId,
+            @Param("texto") String texto,
+            Pageable pagina
+    );
+
     // Precio de un artículo por su código exacto dentro de una lista
     java.util.Optional<ListaPrecioArticulo> findFirstByListaPrecio_IdAndArticulo_CodigoIgnoreCase(
             Long listaPrecioId, String codigo);

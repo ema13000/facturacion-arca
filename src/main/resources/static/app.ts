@@ -195,7 +195,7 @@ function llenarOpciones(
     select.disabled = opciones.length === 0;
 }
 
-const SELECTS_CATALOGO = ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva', 'inputListaPrecio'];
+const SELECTS_CATALOGO = ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva'];
 
 async function cargarOpciones(): Promise<void> {
     try {
@@ -209,7 +209,7 @@ async function cargarOpciones(): Promise<void> {
         llenarOpciones('inputPuntoVenta', puntosVenta, 'Seleccioná un punto de venta');
         llenarOpciones('inputMoneda', monedas, 'Seleccioná una moneda');
         llenarOpciones('inputCondicionIva', condicionesIva, 'Seleccioná una condición de IVA');
-        llenarOpciones('inputListaPrecio', listasPrecio, 'Seleccioná una lista de precios');
+        llenarListasDelBuscador(listasPrecio);
         puntosVentaCargados = puntosVenta;
         aplicarCondicionDelCliente();
         actualizarLetra();
@@ -494,11 +494,6 @@ function imprimirFactura(ventana: Window, f: FacturaImpresionDTO): void {
 
 /* ---------- Renglones de la factura ---------- */
 
-function listaPrecioElegida(): number | null {
-    const texto = valor('inputListaPrecio');
-    return texto === '' ? null : Number(texto);
-}
-
 function subtotalRenglon(renglon: FacturaDetalleRequestDTO): number {
     const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
 
@@ -546,111 +541,124 @@ function importeBruto(renglon: FacturaDetalleRequestDTO): number {
     return precio && Number.isFinite(renglon.cantidad) ? renglon.cantidad * precio.precioVenta : 0;
 }
 
-function agregarRenglon(): void {
+/** Cada artículo elegido en el buscador suma un renglón nuevo (aunque ya esté en la factura). */
+function agregarRenglonCon(precio: PrecioArticuloExplorerDTO): void {
+    preciosElegidos.set(precio.id, precio);
     renglones.push({
-        listaPrecioArticuloId: 0,
+        listaPrecioArticuloId: precio.id,
         cantidad: 1,
         porcentajeBonificacion: 0
     });
-
     dibujarRenglones();
 }
 
-function buscarArticulo(renglon: FacturaDetalleRequestDTO): void {
-    const listaPrecioId = listaPrecioElegida();
+/* ---------- Buscador de artículos (filtro por lista, código o nombre; páginas de 20) ---------- */
 
-    if (listaPrecioId === null) {
-        alert('Seleccioná primero una lista de precios.');
-        return;
+let paginaArticulos = 0;
+let solicitudArticulos = 0;
+
+function llenarListasDelBuscador(listas: OpcionDTO[]): void {
+    const select = elemento<HTMLSelectElement>('articuloLista');
+    const todas = document.createElement('option');
+    todas.value = '';
+    todas.textContent = 'Todas las listas';
+    select.replaceChildren(todas);
+    for (const lista of listas) {
+        const option = document.createElement('option');
+        option.value = String(lista.id);
+        option.textContent = lista.descripcion;
+        select.appendChild(option);
     }
-
-    const lista = elemento<HTMLSelectElement>('inputListaPrecio');
-    const nombreLista = lista.selectedOptions[0]?.textContent ?? '';
-
-    void abrirExplorer(
-        `Artículos de la lista "${nombreLista}"`,
-        ['Código', 'Artículo', 'Precio'],
-        texto => api.buscarPreciosArticulos(listaPrecioId, texto),
-        p => [p.articuloCodigo, p.articuloDenominacion, moneda(p.precioVenta)],
-        elegido => {
-            preciosElegidos.set(elegido.id, elegido);
-            renglon.listaPrecioArticuloId = elegido.id;
-            dibujarRenglones();
-        }
-    );
 }
 
-let buscandoCodigo = false;
+function abrirBuscadorArticulos(): void {
+    elemento<HTMLDialogElement>('articuloDialog').showModal();
+    elemento('articuloBusqueda').focus();
+    // Al abrir se trae la primera página sin filtros
+    void buscarArticulos(0);
+}
 
-async function cargarArticuloPorCodigo(renglon: FacturaDetalleRequestDTO, codigo: string): Promise<void> {
-    const listaPrecioId = listaPrecioElegida();
-    if (listaPrecioId === null || buscandoCodigo) return;
+async function buscarArticulos(pagina: number): Promise<void> {
+    const dialog = elemento<HTMLDialogElement>('articuloDialog');
+    const tbody = elemento<HTMLTableSectionElement>('articuloFilas');
+    const estado = elemento('articuloEstado');
+    const anterior = elemento<HTMLButtonElement>('btnArticuloAnterior');
+    const siguiente = elemento<HTMLButtonElement>('btnArticuloSiguiente');
+    const textoLista = valor('articuloLista');
+    const listaPrecioId = textoLista === '' ? null : Number(textoLista);
 
-    buscandoCodigo = true;
+    const solicitud = ++solicitudArticulos;
+    estado.textContent = 'Buscando...';
+    anterior.disabled = true;
+    siguiente.disabled = true;
+
     try {
-        const precio = await api.obtenerPrecioPorCodigo(listaPrecioId, codigo);
-        preciosElegidos.set(precio.id, precio);
-        renglon.listaPrecioArticuloId = precio.id;
+        const resultado = await api.buscarPreciosArticulos(listaPrecioId, valor('articuloBusqueda'), pagina);
+        if (solicitud !== solicitudArticulos || !dialog.open) return;
+
+        paginaArticulos = resultado.pagina;
+        tbody.replaceChildren();
+        estado.textContent = '';
+
+        if (resultado.contenido.length === 0) {
+            const celda = tbody.insertRow().insertCell();
+            celda.colSpan = 5;
+            celda.className = 'explorer-vacio';
+            celda.textContent = 'No hay artículos para esa búsqueda.';
+        }
+
+        for (const precio of resultado.contenido) {
+            const fila = tbody.insertRow();
+            fila.insertCell().textContent = precio.articuloCodigo;
+            fila.insertCell().textContent = precio.articuloDenominacion;
+            fila.insertCell().textContent = precio.listaPrecioDenominacion;
+            const celdaPrecio = fila.insertCell();
+            celdaPrecio.className = 'texto-derecha';
+            celdaPrecio.textContent = moneda(precio.precioVenta);
+            fila.insertCell().appendChild(crearBoton('Agregar', 'btn-primario btn-chico', () => {
+                agregarRenglonCon(precio);
+                dialog.close();
+            }));
+        }
+
+        const totalPaginas = Math.max(resultado.totalPaginas, 1);
+        elemento('articuloPagina').textContent =
+            `Página ${resultado.pagina + 1} de ${totalPaginas} · ${resultado.totalElementos} artículos`;
+        anterior.disabled = resultado.pagina <= 0;
+        siguiente.disabled = resultado.pagina + 1 >= totalPaginas;
     } catch (error) {
-        renglon.listaPrecioArticuloId = 0;
-        throw error;
-    } finally {
-        buscandoCodigo = false;
-        dibujarRenglones();
+        if (solicitud !== solicitudArticulos || !dialog.open) return;
+        estado.textContent = 'No se pudieron cargar los artículos. Volvé a intentar.';
+        console.error(error);
     }
 }
 
 function dibujarRenglones(): void {
     const tbody = elemento<HTMLTableSectionElement>('tbodyRenglones');
     tbody.replaceChildren();
-    const sinLista = listaPrecioElegida() === null;
+
+    if (renglones.length === 0) {
+        const celda = tbody.insertRow().insertCell();
+        celda.colSpan = 8;
+        celda.className = 'explorer-vacio';
+        celda.textContent = 'Todavía no agregaste artículos. Tocá "Buscar artículo".';
+    }
 
     renglones.forEach((renglon, indice) => {
         const fila = tbody.insertRow();
         const precio = preciosElegidos.get(renglon.listaPrecioArticuloId);
 
-        // Código del artículo: se escribe y con Enter (o al salir del campo) se carga
-        const inputCodigo = document.createElement('input');
-        inputCodigo.type = 'text';
-        inputCodigo.className = 'input-codigo';
-        inputCodigo.placeholder = 'Ej: ART-015';
-        inputCodigo.value = precio?.articuloCodigo ?? '';
-        inputCodigo.dataset.codigo = '';
-        inputCodigo.disabled = sinLista;
-        inputCodigo.title = sinLista ? 'Elegí primero una lista de precios' : 'Escribí el código y presioná Enter';
-        inputCodigo.setAttribute('aria-label', `Código del artículo del renglón ${indice + 1}`);
-        const cargarPorCodigo = () => {
-            const codigo = inputCodigo.value.trim();
-            if (codigo === '' || codigo.toUpperCase() === precio?.articuloCodigo) return;
-            void ejecutar(() => cargarArticuloPorCodigo(renglon, codigo));
-        };
-        inputCodigo.addEventListener('keydown', evento => {
-            if (evento.key === 'Enter') {
-                evento.preventDefault();
-                cargarPorCodigo();
-            }
-        });
-        inputCodigo.addEventListener('change', cargarPorCodigo);
-        fila.insertCell().appendChild(inputCodigo);
+        fila.insertCell().textContent = precio?.articuloCodigo ?? '-';
 
         const celdaArticulo = fila.insertCell();
         const descripcion = document.createElement('span');
         descripcion.className = 'precio-seleccionado';
         descripcion.textContent = precio
             ? precio.articuloDenominacion
-            : renglon.listaPrecioArticuloId > 0
-                ? `Precio #${renglon.listaPrecioArticuloId} no disponible. Seleccioná otro.`
-                : 'Sin artículo seleccionado';
+            : `Precio #${renglon.listaPrecioArticuloId} no disponible. Quitalo y buscá otro.`;
+        celdaArticulo.appendChild(descripcion);
 
-        const buscar = crearBoton(
-            precio ? 'Cambiar artículo' : 'Buscar artículo',
-            'btn-secundario btn-chico',
-            () => buscarArticulo(renglon)
-        );
-        buscar.dataset.buscarPrecio = '';
-        buscar.disabled = sinLista;
-        buscar.title = sinLista ? 'Elegí primero una lista de precios' : '';
-        celdaArticulo.append(descripcion, buscar);
+        fila.insertCell().textContent = precio?.listaPrecioDenominacion ?? '-';
 
         const celdaPrecio = fila.insertCell();
         celdaPrecio.className = 'texto-derecha';
@@ -706,23 +714,6 @@ function dibujarRenglones(): void {
     actualizarTotales();
 }
 
-function cambiarListaPrecio(evento: Event): void {
-    const select = evento.target as HTMLSelectElement;
-    const hayElegidos = renglones.some(r => r.listaPrecioArticuloId > 0);
-
-    if (hayElegidos && !confirm('Al cambiar la lista de precios se quitan los artículos elegidos. ¿Continuar?')) {
-        select.value = select.dataset.anterior ?? '';
-        return;
-    }
-
-    for (const renglon of renglones) {
-        renglon.listaPrecioArticuloId = 0;
-    }
-
-    select.dataset.anterior = select.value;
-    dibujarRenglones();
-}
-
 /* ---------- Alta / edición ---------- */
 
 function mostrarAlta(): void {
@@ -734,14 +725,31 @@ function mostrarAlta(): void {
     elemento('tabNueva').classList.add('activo');
 
     elemento<HTMLFormElement>('formAltaFactura').reset();
-    elemento<HTMLSelectElement>('inputListaPrecio').dataset.anterior = '';
+    prepararFechaEmision();
     seleccionarCliente(null);
 
     elemento('btnGuardarFactura').textContent =
         'Confirmar y Guardar Factura';
 
     renglones = [];
-    agregarRenglon();
+    dibujarRenglones();
+}
+
+const DIAS_TOLERANCIA_FECHA = 5;
+
+function fechaISO(dias = 0): string {
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() + dias);
+    const dosDigitos = (n: number) => String(n).padStart(2, '0');
+    return `${fecha.getFullYear()}-${dosDigitos(fecha.getMonth() + 1)}-${dosDigitos(fecha.getDate())}`;
+}
+
+/** La fecha arranca en hoy y ARCA solo acepta hasta 5 días antes o después. */
+function prepararFechaEmision(): void {
+    const fecha = elemento<HTMLInputElement>('inputFechaEmision');
+    fecha.value = fechaISO();
+    fecha.min = fechaISO(-DIAS_TOLERANCIA_FECHA);
+    fecha.max = fechaISO(DIAS_TOLERANCIA_FECHA);
 }
 
 async function mostrarListado(): Promise<void> {
@@ -792,12 +800,10 @@ async function editarFactura(id: number): Promise<void> {
     aplicarCondicionDelCliente();
     actualizarLetra();
 
-    const primerPrecio = precios.find(p => p !== null);
-    if (primerPrecio) {
-        const lista = elemento<HTMLSelectElement>('inputListaPrecio');
-        lista.value = String(primerPrecio.listaPrecioId);
-        lista.dataset.anterior = lista.value;
+    if (factura.fechaEmision) {
+        elemento<HTMLInputElement>('inputFechaEmision').value = factura.fechaEmision.slice(0, 10);
     }
+    elemento<HTMLTextAreaElement>('inputObservaciones').value = factura.observaciones ?? '';
 
     renglones = factura.detalles.map(detalle => ({ ...detalle }));
 
@@ -904,7 +910,12 @@ async function guardarFactura(): Promise<void> {
     }
 
     if (renglones.length === 0) {
-        throw new Error('Agregá al menos un renglón.');
+        throw new Error('Agregá al menos un artículo con "Buscar artículo".');
+    }
+
+    const fechaEmision = valor('inputFechaEmision');
+    if (fechaEmision === '') {
+        throw new Error('Completá la fecha de emisión.');
     }
 
     for (const renglon of renglones) {
@@ -922,7 +933,9 @@ async function guardarFactura(): Promise<void> {
         condicionIvaId: numeroCampo('inputCondicionIva'),
         tipoMonedaId: numeroCampo('inputMoneda'),
         puntoVentaId: numeroCampo('inputPuntoVenta'),
-        detalles: renglones
+        detalles: renglones,
+        fechaEmision,
+        observaciones: valor('inputObservaciones') || null
     };
 
     if (facturaEnEdicionId === null) {
@@ -1086,7 +1099,28 @@ document.addEventListener('DOMContentLoaded', () => {
         buscarEnExplorer = () => {};
     });
 
-    elemento('inputListaPrecio').addEventListener('change', cambiarListaPrecio);
+    elemento('btnBuscarArticulo').addEventListener('click', abrirBuscadorArticulos);
+    elemento('btnArticuloBuscar').addEventListener('click', () => void buscarArticulos(0));
+    elemento('articuloBusqueda').addEventListener('keydown', evento => {
+        if (evento.key === 'Enter') {
+            evento.preventDefault();
+            void buscarArticulos(0);
+        }
+    });
+    elemento('articuloLista').addEventListener('change', () => void buscarArticulos(0));
+    elemento('btnArticuloTodos').addEventListener('click', () => {
+        elemento<HTMLSelectElement>('articuloLista').value = '';
+        elemento<HTMLInputElement>('articuloBusqueda').value = '';
+        void buscarArticulos(0);
+    });
+    elemento('btnArticuloAnterior').addEventListener('click', () => void buscarArticulos(paginaArticulos - 1));
+    elemento('btnArticuloSiguiente').addEventListener('click', () => void buscarArticulos(paginaArticulos + 1));
+    elemento('btnCerrarArticulo').addEventListener('click', () => {
+        elemento<HTMLDialogElement>('articuloDialog').close();
+    });
+    elemento('articuloDialog').addEventListener('close', () => {
+        solicitudArticulos++;
+    });
     elemento('inputPuntoVenta').addEventListener('change', actualizarLetra);
 
     elemento('btnConfirmarAutorizar').addEventListener('click', () => {
@@ -1111,7 +1145,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    elemento('btnSumarRenglon').addEventListener('click', agregarRenglon);
 
     elemento('selTamanioPagina').addEventListener('change', () => {
         paginaActual = 1;

@@ -11,7 +11,9 @@ public record FacturaEdicionDTO(
         Long condicionIvaId,
         Long tipoMonedaId,
         Long puntoVentaId,
-        List<FacturaDetalleRequestDTO> detalles
+        List<FacturaDetalleRequestDTO> detalles,
+        java.time.LocalDate fechaEmision,
+        String observaciones
 ) {
     public static FacturaEdicionDTO toDTO(FacturaVenta factura) {
         List<FacturaDetalleRequestDTO> detalles = factura.getDetalles()
@@ -31,7 +33,11 @@ public record FacturaEdicionDTO(
                 factura.getCondicionIva().getId(),
                 factura.getTipoMoneda().getId(),
                 factura.getPuntoVenta().getId(),
-                detalles
+                detalles,
+                factura.getFechaEmision() == null
+                        ? null
+                        : new java.sql.Date(factura.getFechaEmision().getTime()).toLocalDate(),
+                factura.getObservaciones()
         );
     }
 }

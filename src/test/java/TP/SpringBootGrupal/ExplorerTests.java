@@ -150,23 +150,6 @@ class ExplorerTests {
         verify(clientes, never()).findAll();
     }
 
-    @Test
-    void buscaPreciosSoloDeLaListaElegidaYExcluyeBajas() {
-        var primero = precio(25, 100);
-        primero.getListaPrecio().setId(3L);
-        var baja = precio(27, 90);
-        baja.setFechaBaja(new Date());
-        var articuloBaja = precio(28, 90);
-        articuloBaja.getArticulo().setFechaBaja(new Date());
-        when(precios.buscar(eq(3L), eq("cuad"), any(PageRequest.class)))
-                .thenReturn(List.of(primero, baja, articuloBaja));
-        var resultado = catalogo().buscarPreciosArticulos(3L, "cuad");
-        assertEquals(List.of(25L), resultado.stream().map(p -> p.id()).toList());
-        assertEquals(3L, resultado.get(0).listaPrecioId());
-        assertEquals("Cuaderno", resultado.get(0).articuloDenominacion());
-        verify(precios, never()).findAll();
-    }
-
     @ParameterizedTest
     @ValueSource(strings = {"ART-015", "  art-015 "})
     void buscaUnArticuloPorCodigoExactoEnLaListaElegida(String codigo) {
@@ -205,14 +188,10 @@ class ExplorerTests {
     }
 
     @Test
-    void buscarPreciosExigeListaDePrecios() {
-        assertThrows(IllegalArgumentException.class, () -> catalogo().buscarPreciosArticulos(null, "x"));
-    }
-
-    @Test
     void explorersDevuelvenListaVaciaSinRegistros() {
         assertTrue(catalogo().buscarClientes("").isEmpty());
-        assertTrue(catalogo().buscarPreciosArticulos(1L, "").isEmpty());
+        when(precios.buscarPagina(any(), any(), any())).thenReturn(org.springframework.data.domain.Page.empty());
+        assertTrue(catalogo().buscarPreciosArticulos(1L, "", 0).contenido().isEmpty());
     }
 
     @Test

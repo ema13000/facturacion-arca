@@ -63,7 +63,7 @@ class ArticulosInicialesTests {
     }
 
     @Test
-    void creaUnaListaGeneralSiNoHayNinguna() {
+    void creaLaListaMinoristaSiNoHayNinguna() {
         when(articulos.count()).thenReturn(0L);
         when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
         when(listas.findByFechaBajaIsNullOrderByDenominacion()).thenReturn(List.of());
@@ -71,7 +71,9 @@ class ArticulosInicialesTests {
 
         cargador().run();
 
-        verify(listas).save(any(ListaPrecio.class));
+        ArgumentCaptor<ListaPrecio> creadas = ArgumentCaptor.forClass(ListaPrecio.class);
+        verify(listas, atLeastOnce()).save(creadas.capture());
+        assertEquals("Minorista", creadas.getAllValues().get(0).getDenominacion());
         verify(precios, times(ArticulosIniciales.CANTIDAD_ARTICULOS)).save(any(ListaPrecioArticulo.class));
     }
 

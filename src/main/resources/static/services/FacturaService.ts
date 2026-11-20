@@ -5,6 +5,7 @@ import type {
     FacturaEdicionDTO,
     FacturaImpresionDTO,
     OpcionDTO,
+    PaginaDTO,
     PuntoVentaDTO,
     ClienteExplorerDTO,
     PrecioArticuloExplorerDTO,
@@ -38,20 +39,17 @@ export class FacturaService {
         return this.obtenerJson(`${this.catalogosUrl}/listas-precio`);
     }
 
+    /** Busca por código o nombre; la lista es opcional (null = todas). Páginas de 20, empezando en 0. */
     buscarPreciosArticulos(
-        listaPrecioId: number,
-        texto: string
-    ): Promise<PrecioArticuloExplorerDTO[]> {
-        const params = new URLSearchParams({
-            listaPrecioId: String(listaPrecioId),
-            texto
-        });
+        listaPrecioId: number | null,
+        texto: string,
+        pagina: number
+    ): Promise<PaginaDTO<PrecioArticuloExplorerDTO>> {
+        const params = new URLSearchParams({ texto, pagina: String(pagina) });
+        if (listaPrecioId !== null) {
+            params.set('listaPrecioId', String(listaPrecioId));
+        }
         return this.obtenerJson(`${this.catalogosUrl}/precios-articulos?${params}`);
-    }
-
-    obtenerPrecioPorCodigo(listaPrecioId: number, codigo: string): Promise<PrecioArticuloExplorerDTO> {
-        const params = new URLSearchParams({ listaPrecioId: String(listaPrecioId), codigo });
-        return this.obtenerJson(`${this.catalogosUrl}/precios-articulos/por-codigo?${params}`);
     }
 
     obtenerPrecioArticulo(id: number): Promise<PrecioArticuloExplorerDTO> {
