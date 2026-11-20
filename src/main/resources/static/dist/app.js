@@ -15,8 +15,7 @@ const CONSUMIDOR_FINAL = 5;
 // Condiciones del receptor que reciben Factura A de un Responsable Inscripto
 const RECIBEN_FACTURA_A = [1, 6, 13, 16];
 const ALICUOTA_IVA = 21;
-const MENSAJE_ARCA_AB = (letra) => `Para autorizar la Factura ${letra} en ARCA hace falta un CUIT Responsable Inscripto con su certificado. ` +
-    'La factura queda guardada como PENDIENTE.';
+const MENSAJE_ARCA_AB = (letra) => `Para enviar una Factura ${letra}, hace falta un certificado de Responsable Inscripto. La factura sigue pendiente.`;
 function letraDe(factura) {
     return factura.tipoComprobante || 'C';
 }
@@ -41,6 +40,7 @@ function actualizarLetra() {
 function aplicarCondicionDelCliente() {
     const select = elemento('inputCondicionIva');
     const ayuda = elemento('ayudaCondicionIva');
+    select.querySelector('[data-condicion-registrada]')?.remove();
     const opciones = Array.from(select.options).filter(o => o.value !== '');
     if (opciones.length === 0) {
         return;
@@ -55,7 +55,14 @@ function aplicarCondicionDelCliente() {
         }
     }
     else if (clienteSeleccionado.condicionIvaId != null) {
-        select.value = String(clienteSeleccionado.condicionIvaId);
+        const id = String(clienteSeleccionado.condicionIvaId);
+        if (!opciones.some(opcion => opcion.value === id)) {
+            const registrada = new Option(clienteSeleccionado.condicionIva ?? 'Condición registrada', id);
+            registrada.disabled = true;
+            registrada.dataset.condicionRegistrada = 'true';
+            select.add(registrada);
+        }
+        select.value = id;
         select.disabled = true;
         ayuda.textContent = 'Se toma de la categoría del cliente.';
         return;
@@ -67,6 +74,8 @@ function aplicarCondicionDelCliente() {
 let buscarEnExplorer = () => { };
 let solicitudExplorer = 0;
 let facturasListado = [];
+let solicitudListado = 0;
+const MENSAJE_FECHA_ARCA = 'La fecha de emisión es anterior a hoy. Editá la factura antes de enviarla a ARCA.';
 let paginaActual = 1;
 // ID de la última factura guardada: se resalta en el listado
 let ultimaGuardadaId = null;
@@ -100,9 +109,8 @@ const ICONOS = {
     editar: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
     eliminar: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
     anular: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
-    imprimir: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
+    verFactura: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
     quitar: '<path d="M18 6 6 18M6 6l12 12"/>',
-    pdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="m9 15 3 3 3-3"/>',
     enviar: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'
 };
 /** Botón de ícono: el texto queda oculto visualmente pero sirve para lectores de pantalla. */
@@ -174,30 +182,94 @@ async function cargarOpciones() {
         throw error;
     }
 }
-async function ejecutar(accion) {
+function mensajeError(error) {
+    return error instanceof Error ? error.message : String(error);
+}
+async function ejecutar(accion, informarError = error => alert(mensajeError(error))) {
     try {
         await accion();
     }
     catch (error) {
         console.error(error);
-        alert(error instanceof Error ? error.message : String(error));
+        informarError(error);
     }
+}
+function mostrarAviso(tipo, titulo, detalle) {
+    const dialogo = elemento('avisoResultado');
+    dialogo.dataset.tipo = tipo;
+    elemento('avisoTitulo').textContent = titulo;
+    elemento('avisoDetalle').textContent = detalle;
+    if (!dialogo.open)
+        dialogo.showModal();
+}
+function detalleArca(mensaje, alternativa) {
+    if (/(?:^|\D)10015(?!\d)/.test(mensaje) || mensaje.includes('CUIT del cliente debe tener')) {
+        return 'Revisá el CUIT del cliente. La factura sigue pendiente.';
+    }
+    const fechaMinima = /la fecha mínima[^.]*?es (\d{2}\/\d{2}\/\d{4})/i.exec(mensaje)?.[1];
+    if (fechaMinima) {
+        return `Elegí el ${fechaMinima} o una fecha posterior para este punto de venta.`;
+    }
+    if (mensaje.includes('fecha de emisión es anterior a hoy')) {
+        return 'La factura tiene una fecha anterior a hoy. Revisá la fecha de emisión.';
+    }
+    if (mensaje.includes('consumidor final con CUIT para facturas desde')) {
+        return 'Por el monto de la factura, elegí un consumidor final con CUIT.';
+    }
+    if (/(?:^|\D)10016(?!\d)/.test(mensaje)) {
+        return 'Revisá la fecha y el punto de venta. La factura sigue pendiente.';
+    }
+    if (/coe\.notAuthorized|cms\.cert\./.test(mensaje)) {
+        return 'La conexión con ARCA necesita revisión. La factura sigue pendiente.';
+    }
+    return alternativa;
 }
 /* ---------- Listado de facturas con paginación ---------- */
 function leerFiltros() {
+    const monto = elemento('txtMontoMinimo');
+    if (!monto.checkValidity()) {
+        throw new Error('Ingresá un monto mínimo mayor o igual a cero, con hasta dos decimales.');
+    }
+    const arca = valor('selFiltroArca');
     return {
         numeroFactura: valor('txtFiltroNumero'),
         cliente: valor('txtFiltroCliente'),
-        condicionIva: valor('txtFiltroIva'),
+        condicionIvaId: valor('selFiltroIva'),
+        montoMinimo: monto.value === '' ? undefined : monto.valueAsNumber,
+        informadaArca: arca === '' ? undefined : arca === 'informadas',
         estado: valor('selFiltroEstado'),
         fechaDesde: valor('txtFechaDesde'),
         fechaHasta: valor('txtFechaHasta')
     };
 }
 async function cargarListado() {
-    facturasListado = await api.obtenerFacturas(leerFiltros());
+    const filtros = leerFiltros();
+    const solicitud = ++solicitudListado;
+    for (const id of ['btnReportePdf', 'btnReporteExcel']) {
+        elemento(id).disabled = true;
+    }
+    const facturas = await api.obtenerFacturas(filtros);
+    if (solicitud !== solicitudListado)
+        return;
+    facturasListado = facturas;
     paginaActual = 1;
     dibujarFacturas();
+    for (const id of ['btnReportePdf', 'btnReporteExcel']) {
+        elemento(id).disabled = false;
+    }
+}
+function descargarArchivo({ archivo, nombre }) {
+    const url = URL.createObjectURL(archivo);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombre;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function descargarReporte(formato) {
+    descargarArchivo(await api.descargarReporte(formato, facturasListado.map(factura => factura.id)));
 }
 function tamanioPagina() {
     return Number(valor('selTamanioPagina')) || 10;
@@ -272,6 +344,9 @@ function dibujarFacturas() {
  */
 function accionesSegunEstado(factura) {
     if (factura.estado === 'PENDIENTE') {
+        const vencida = fechaAnteriorAHoy(factura);
+        const autorizar = botonIcono('Autorizar en ARCA', 'enviar', 'icono-verde', () => abrirAutorizacion(factura), vencida ? MENSAJE_FECHA_ARCA : 'Informar la factura a ARCA y obtener el CAE');
+        autorizar.disabled = vencida;
         return [
             botonIcono('Editar', 'editar', 'icono-azul', () => {
                 void ejecutar(() => editarFactura(factura.id));
@@ -285,7 +360,7 @@ function accionesSegunEstado(factura) {
                     await cargarListado();
                 });
             }, 'Eliminar factura pendiente'),
-            botonIcono('Autorizar en ARCA', 'enviar', 'icono-verde', () => abrirAutorizacion(factura), 'Informar la factura a ARCA y obtener el CAE')
+            autorizar
         ];
     }
     if (factura.estado === 'AUTORIZADA') {
@@ -300,35 +375,22 @@ function accionesSegunEstado(factura) {
                     await cargarListado();
                 });
             }, 'Anular factura'),
-            botonIcono('Imprimir', 'imprimir', 'icono-indigo', () => {
+            botonIcono('Ver factura', 'verFactura', 'icono-indigo', () => {
                 // La ventana se abre en el mismo clic para que el navegador no la bloquee
                 const ventana = window.open('', '_blank');
                 void ejecutar(async () => {
                     if (!ventana) {
-                        throw new Error('El navegador bloqueó la ventana de impresión. Permití ventanas emergentes.');
+                        throw new Error('El navegador bloqueó la vista de la factura. Permití ventanas emergentes.');
                     }
                     try {
-                        imprimirFactura(ventana, await api.obtenerImpresion(factura.id));
+                        mostrarFactura(ventana, await api.obtenerImpresion(factura.id));
                     }
                     catch (error) {
                         ventana.close();
                         throw error;
                     }
                 });
-            }, 'Imprimir factura con CAE'),
-            botonIcono('Descargar PDF', 'pdf', 'icono-rojo', () => {
-                void ejecutar(async () => {
-                    const { archivo, nombre } = await api.descargarPdf(factura.id);
-                    const url = URL.createObjectURL(archivo);
-                    const enlace = document.createElement('a');
-                    enlace.href = url;
-                    enlace.download = nombre;
-                    document.body.appendChild(enlace);
-                    enlace.click();
-                    enlace.remove();
-                    setTimeout(() => URL.revokeObjectURL(url), 1000);
-                });
-            }, 'Descargar PDF con CAE y vencimiento')
+            }, 'Ver factura autorizada y opciones de impresión')
         ];
     }
     return [];
@@ -343,7 +405,7 @@ function fechaArgentina(iso) {
     const [anio, mes, dia] = iso.slice(0, 10).split('-');
     return `${dia}/${mes}/${anio}`;
 }
-function imprimirFactura(ventana, f) {
+function mostrarFactura(ventana, f) {
     const numero = `${String(f.puntoVentaNumero).padStart(4, '0')}-${String(f.numeroFactura).padStart(8, '0')}`;
     const letra = letraDe(f);
     const lineasIva = letra === 'A'
@@ -375,9 +437,28 @@ function imprimirFactura(ventana, f) {
     .iva { text-align: right; }
     .total { text-align: right; font-size: 1.3rem; font-weight: 700; margin-top: 14px; }
     .cae { margin-top: 24px; border-top: 2px solid #1e293b; padding-top: 12px; text-align: right; }
-    @media print { button { display: none; } body { margin: 0; } }
+    .acciones-factura { display: flex; justify-content: flex-end; margin: 0 0 16px; }
+    .btn-primario {
+        display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 8px;
+        padding: 10px 16px; font: inherit; font-size: .9rem; font-weight: 650;
+        color: #fff; background: linear-gradient(180deg, #6366f1, #4f46e5);
+        box-shadow: 0 1px 2px rgba(79, 70, 229, .3); cursor: pointer;
+    }
+    .btn-primario:hover { background: #4338ca; }
+    .btn-primario:focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+    .btn-primario svg { width: 18px; height: 18px; }
+    @media print { .acciones-factura { display: none; } body { margin: 0; } }
 </style></head>
 <body>
+    <div class="acciones-factura">
+        <button id="btnImprimirFactura" type="button" class="btn-primario">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/>
+            </svg>
+            Imprimir factura
+        </button>
+    </div>
     <div class="cabecera">
         <div>
             <h1>FACTURA</h1>
@@ -389,7 +470,7 @@ function imprimirFactura(ventana, f) {
     </div>
     <div class="cliente">
         <p><strong>Cliente:</strong> ${escaparHtml(f.clienteDenominacion)}</p>
-        <p><strong>CUIT/CUIL:</strong> ${escaparHtml(f.clienteCuitCuil ?? '-')}</p>
+        <p><strong>CUIT:</strong> ${escaparHtml(f.clienteCuit ?? '-')}</p>
         <p><strong>Condición frente al IVA:</strong> ${escaparHtml(f.condicionIva)}</p>
     </div>
     <table>
@@ -402,11 +483,10 @@ function imprimirFactura(ventana, f) {
         <p><strong>CAE N°:</strong> ${escaparHtml(f.cae)}</p>
         <p><strong>Fecha de vencimiento del CAE:</strong> ${fechaArgentina(f.caeFechaVencimiento)}</p>
     </div>
-    <button onclick="window.print()">Imprimir</button>
 </body></html>`);
     ventana.document.close();
+    ventana.document.getElementById('btnImprimirFactura')?.addEventListener('click', () => ventana.print());
     ventana.focus();
-    ventana.print();
 }
 /* ---------- Renglones de la factura ---------- */
 function subtotalRenglon(renglon) {
@@ -599,13 +679,22 @@ function mostrarAlta() {
     dibujarRenglones();
 }
 const DIAS_TOLERANCIA_FECHA = 5;
+const calendarioArgentina = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+});
 function fechaISO(dias = 0) {
-    const fecha = new Date();
-    fecha.setDate(fecha.getDate() + dias);
-    const dosDigitos = (n) => String(n).padStart(2, '0');
-    return `${fecha.getFullYear()}-${dosDigitos(fecha.getMonth() + 1)}-${dosDigitos(fecha.getDate())}`;
+    const hoy = calendarioArgentina.format(new Date());
+    const fecha = new Date(`${hoy}T00:00:00Z`);
+    fecha.setUTCDate(fecha.getUTCDate() + dias);
+    return fecha.toISOString().slice(0, 10);
 }
-/** La fecha arranca en hoy y ARCA solo acepta hasta 5 días antes o después. */
+function fechaAnteriorAHoy(factura) {
+    return factura.fechaEmision.slice(0, 10) < fechaISO();
+}
+/** Rango disponible para guardar el comprobante pendiente. */
 function prepararFechaEmision() {
     const fecha = elemento('inputFechaEmision');
     fecha.value = fechaISO();
@@ -668,61 +757,43 @@ function formatearCuit(cuit) {
         : cuit;
 }
 function abrirAutorizacion(factura) {
-    if (letraDe(factura) !== 'C') {
-        alert(MENSAJE_ARCA_AB(letraDe(factura)));
+    if (fechaAnteriorAHoy(factura)) {
+        mostrarAviso('aviso', 'No se pudo enviar a ARCA', MENSAJE_FECHA_ARCA);
         return;
     }
+    if (letraDe(factura) !== 'C') {
+        mostrarAviso('aviso', 'No se pudo enviar a ARCA', MENSAJE_ARCA_AB(letraDe(factura)));
+        return;
+    }
+    const cuit = factura.clienteCuit?.trim();
     facturaParaAutorizar = factura;
-    const tieneCliente = Boolean(factura.clienteCuitCuil);
     elemento('autorizarTitulo').textContent = `Autorizar factura N° ${factura.numeroFactura} en ARCA`;
     elemento('autorizarCliente').textContent = factura.clienteDenominacion;
     elemento('autorizarTotal').textContent = moneda(factura.importeTotal);
-    elemento('autorizarDocumento').textContent = tieneCliente
-        ? formatearCuit(factura.clienteCuitCuil)
-        : 'Consumidor final sin identificar';
-    // El tipo de documento solo tiene sentido si hay un cliente con CUIT/CUIL
-    elemento('campoTipoDocumento').classList.toggle('oculto', !tieneCliente);
-    elemento('autorizarTipoDocumento').value = '80';
+    elemento('autorizarCuit').textContent = cuit ? formatearCuit(cuit) : 'Sin identificar';
     elemento('autorizarDialog').showModal();
-}
-function documentoParaArca(factura) {
-    if (!factura.clienteCuitCuil) {
-        return { tipoDocumento: 99, numeroDocumento: 0 };
-    }
-    const tipoDocumento = numeroCampo('autorizarTipoDocumento');
-    const documento = factura.clienteCuitCuil.replace(/\D/g, '');
-    if (!/^\d{11}$/.test(documento)) {
-        throw new Error('El CUIT/CUIL del cliente debe tener 11 dígitos.');
-    }
-    return { tipoDocumento, numeroDocumento: Number(documento) };
 }
 async function confirmarAutorizacion() {
     const factura = facturaParaAutorizar;
     if (!factura)
         return;
-    const documento = documentoParaArca(factura);
+    if (fechaAnteriorAHoy(factura)) {
+        throw new Error(MENSAJE_FECHA_ARCA);
+    }
     const boton = elemento('btnConfirmarAutorizar');
     boton.disabled = true;
     try {
-        const autorizacion = await api.autorizarFactura(factura.id, documento.tipoDocumento, documento.numeroDocumento);
+        const autorizacion = await api.autorizarFactura(factura.id);
         elemento('autorizarDialog').close();
         const resultado = autorizacion.resultado;
         if (resultado.resultado === 'A') {
-            alert([
-                `Factura ${autorizacion.numeroComprobante} autorizada en ARCA (homologación).`,
-                `CAE: ${resultado.cae}`,
-                `Vencimiento: ${resultado.fechaVencimiento}`,
-                ...resultado.observaciones
-            ].join('\n'));
+            mostrarAviso('exito', 'Factura autorizada', `Podés ver la factura n.º ${factura.numeroFactura} en el listado.`);
         }
         else {
-            alert([
-                `ARCA rechazó la factura N° ${factura.numeroFactura}. Sigue pendiente.`,
-                ...resultado.observaciones
-            ].join('\n'));
+            mostrarAviso('aviso', 'ARCA rechazó la factura', detalleArca(resultado.observaciones.join(' '), 'La factura sigue pendiente. Revisá los datos antes de volver a enviarla.'));
         }
         ultimaGuardadaId = factura.id;
-        await cargarListado();
+        await cargarListado().catch(error => console.error(error));
     }
     finally {
         boton.disabled = false;
@@ -761,21 +832,11 @@ async function guardarFactura() {
         fechaEmision,
         observaciones: valor('inputObservaciones') || null
     };
-    if (facturaEnEdicionId === null) {
-        // Guardar NO informa a ARCA: la factura queda PENDIENTE y se autoriza en otro paso
-        const creada = await api.crearFactura(dto);
-        ultimaGuardadaId = creada.id;
-        alert(`Factura N° ${creada.numeroFactura} guardada como PENDIENTE. ` +
-            `Total: ${moneda(creada.importeTotal)}.\n` +
-            'Para informarla a ARCA usá el botón "Autorizar en ARCA" del listado.');
-    }
-    else {
-        const actualizada = await api.actualizarFactura(facturaEnEdicionId, dto);
-        ultimaGuardadaId = actualizada.id;
-        alert(`Factura ${actualizada.numeroFactura} actualizada. ` +
-            `Total: ${moneda(actualizada.importeTotal)}`);
-    }
-    await mostrarListado();
+    const idEnEdicion = facturaEnEdicionId;
+    const factura = idEnEdicion === null ? await api.crearFactura(dto) : await api.actualizarFactura(idEnEdicion, dto);
+    ultimaGuardadaId = factura.id;
+    await mostrarListado().catch(error => console.error(error));
+    mostrarAviso('exito', idEnEdicion === null ? 'Factura guardada' : 'Factura actualizada', `Factura n.º ${factura.numeroFactura}. Pendiente de enviar a ARCA.`);
 }
 function seleccionarCliente(cliente) {
     clienteSeleccionado = cliente;
@@ -783,10 +844,10 @@ function seleccionarCliente(cliente) {
     elemento('clienteDescripcion').value =
         cliente?.denominacion ?? 'Consumidor final';
     elemento('clienteNombreVisible').textContent = cliente?.denominacion ?? 'Consumidor final';
-    // Debajo de la razón social: nombre y apellido + CUIT/CUIL
+    // Debajo de la razón social: nombre y apellido + CUIT
     const persona = cliente ? nombreCompleto(cliente) : '';
     elemento('clienteDetalle').textContent = cliente
-        ? [persona, `CUIT/CUIL ${formatearCuit(cliente.cuitCuil)}`].filter(Boolean).join(' · ')
+        ? [persona, `CUIT ${formatearCuit(cliente.cuit)}`].filter(Boolean).join(' · ')
         : 'Sin identificar';
     elemento('avatarCliente').textContent = cliente
         ? iniciales(persona || cliente.denominacion)
@@ -811,6 +872,8 @@ async function abrirExplorer(titulo, columnas, buscar, celdas, seleccionar) {
     const tbody = elemento('explorerFilas');
     const estado = elemento('explorerEstado');
     const boton = elemento('btnExplorerBuscar');
+    solicitudExplorer++;
+    boton.disabled = false;
     elemento('explorerTitulo').textContent = titulo;
     busqueda.value = '';
     encabezado.replaceChildren();
@@ -856,7 +919,9 @@ async function abrirExplorer(titulo, columnas, buscar, celdas, seleccionar) {
                 console.error(error);
             }
             finally {
-                boton.disabled = false;
+                if (solicitud === solicitudExplorer && dialog.open) {
+                    boton.disabled = false;
+                }
             }
         })();
     };
@@ -866,7 +931,7 @@ async function abrirExplorer(titulo, columnas, buscar, celdas, seleccionar) {
 document.addEventListener('DOMContentLoaded', () => {
     api.configurar(USUARIO_OPERADOR_ID, PORCENTAJE_IVA_FACTURA_C);
     elemento('btnBuscarCliente').addEventListener('click', () => {
-        void abrirExplorer('Seleccionar cliente', ['CUIT/CUIL', 'Razón social', 'Nombre y apellido'], texto => api.buscarClientes(texto), cliente => [formatearCuit(cliente.cuitCuil), cliente.denominacion, nombreCompleto(cliente) || '-'], seleccionarCliente);
+        void abrirExplorer('Seleccionar cliente', ['CUIT', 'Razón social', 'Nombre y apellido'], texto => api.buscarClientes(texto), cliente => [formatearCuit(cliente.cuit), cliente.denominacion, nombreCompleto(cliente) || '-'], seleccionarCliente);
     });
     elemento('btnQuitarCliente').addEventListener('click', () => seleccionarCliente(null));
     elemento('btnExplorerBuscar').addEventListener('click', () => buscarEnExplorer());
@@ -885,7 +950,10 @@ document.addEventListener('DOMContentLoaded', () => {
             elemento('explorerDialog').close();
         }
     });
-    elemento('explorerDialog').addEventListener('close', () => {
+    elemento('explorerDialog').addEventListener('close', evento => {
+        // El evento puede llegar después de que el usuario ya volvió a abrir el buscador.
+        if (evento.currentTarget.open)
+            return;
         solicitudExplorer++;
         buscarEnExplorer = () => { };
     });
@@ -913,7 +981,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     elemento('inputPuntoVenta').addEventListener('change', actualizarLetra);
     elemento('btnConfirmarAutorizar').addEventListener('click', () => {
-        void ejecutar(confirmarAutorizacion);
+        void ejecutar(confirmarAutorizacion, error => {
+            elemento('autorizarDialog').close();
+            mostrarAviso('aviso', 'No se pudo enviar a ARCA', detalleArca(mensajeError(error), 'La factura sigue pendiente. Volvé a intentar en unos minutos.'));
+        });
     });
     for (const id of ['btnCancelarAutorizar', 'btnCerrarAutorizar']) {
         elemento(id).addEventListener('click', () => {
@@ -951,8 +1022,10 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const id of [
             'txtFiltroNumero',
             'txtFiltroCliente',
-            'txtFiltroIva',
+            'selFiltroIva',
             'selFiltroEstado',
+            'selFiltroArca',
+            'txtMontoMinimo',
             'txtFechaDesde',
             'txtFechaHasta'
         ]) {
@@ -975,7 +1048,17 @@ document.addEventListener('DOMContentLoaded', () => {
             finally {
                 boton.disabled = false;
             }
+        }, error => {
+            const mensaje = mensajeError(error);
+            const detalle = /^(Seleccioná|Agregá|Completá)(?=\s|$)/.test(mensaje)
+                ? mensaje : 'Revisá los datos de la factura y volvé a intentar.';
+            mostrarAviso('aviso', 'No se pudo guardar', detalle);
         });
+    });
+    elemento('btnReportePdf').addEventListener('click', () => void ejecutar(() => descargarReporte('pdf')));
+    elemento('btnReporteExcel').addEventListener('click', () => void ejecutar(() => descargarReporte('xlsx')));
+    void ejecutar(async () => {
+        llenarOpciones('selFiltroIva', await api.obtenerCondicionesIva(), 'Todas');
     });
     void ejecutar(cargarListado);
 });

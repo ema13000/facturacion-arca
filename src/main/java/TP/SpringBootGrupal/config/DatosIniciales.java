@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Carga al arrancar los clientes de prueba que todavía no existen (se buscan por CUIT/CUIL).
+ * Carga al arrancar los clientes de prueba que todavía no existen (se buscan por CUIT).
  * Así el buscador de clientes siempre tiene datos para probar.
  */
 @Component
@@ -31,7 +31,7 @@ public class DatosIniciales implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DatosIniciales.class);
 
-    /** CUIT/CUIL, razón social, nombre, apellido y código ARCA de la condición de IVA de cada cliente de prueba. */
+    /** CUIT, razón social, nombre, apellido y código ARCA de la condición de IVA de cada cliente de prueba. */
     public static final List<String[]> CLIENTES_PRUEBA = List.of(
             new String[]{"20123456786", "Librería Centro", "Juan", "Pérez", "6"},
             new String[]{"27234567891", "Escuela Norte", "María", "González", "4"},
@@ -87,7 +87,7 @@ public class DatosIniciales implements CommandLineRunner {
         completarNombresFaltantes();
 
         List<String[]> faltantes = CLIENTES_PRUEBA.stream()
-                .filter(datos -> clienteRepository.findFirstByCuitCuil(datos[0]).isEmpty())
+                .filter(datos -> clienteRepository.findFirstByCuit(datos[0]).isEmpty())
                 .toList();
         if (faltantes.isEmpty()) {
             return;
@@ -115,7 +115,7 @@ public class DatosIniciales implements CommandLineRunner {
             domicilio = domicilioRepository.save(domicilio);
 
             Cliente cliente = new Cliente();
-            cliente.setCuitCuil(datos[0]);
+            cliente.setCuit(datos[0]);
             cliente.setDenominacion(datos[1]);
             cliente.setNombre(datos[2]);
             cliente.setApellido(datos[3]);
@@ -139,7 +139,7 @@ public class DatosIniciales implements CommandLineRunner {
     /** Completa nombre/apellido y categoría de IVA de los clientes de prueba que ya estaban cargados. */
     private void completarNombresFaltantes() {
         for (String[] datos : CLIENTES_PRUEBA) {
-            clienteRepository.findFirstByCuitCuil(datos[0]).ifPresent(cliente -> {
+            clienteRepository.findFirstByCuit(datos[0]).ifPresent(cliente -> {
                 boolean cambio = false;
                 if (cliente.getNombre() == null || cliente.getNombre().isBlank()) {
                     cliente.setNombre(datos[2]);

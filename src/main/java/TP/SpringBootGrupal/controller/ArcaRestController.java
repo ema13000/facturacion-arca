@@ -1,7 +1,6 @@
 package TP.SpringBootGrupal.controller;
 
 import TP.SpringBootGrupal.arca.AutorizacionFacturaC;
-import TP.SpringBootGrupal.arca.SolicitudAutorizacionArca;
 import TP.SpringBootGrupal.service.FacturacionArcaService;
 
 import org.springframework.http.ResponseEntity;
@@ -20,18 +19,10 @@ public class ArcaRestController {
 
     @PostMapping("/{id}/autorizar-arca")
     public ResponseEntity<AutorizacionFacturaC> autorizar(
-            @PathVariable("id") Long facturaId,
-            @RequestBody SolicitudAutorizacionArca solicitud
+            @PathVariable("id") Long facturaId
     ) throws Exception {
 
-        AutorizacionFacturaC resultado =
-                service.autorizarFacturaPorId(
-                        facturaId,
-                        solicitud.tipoDocumento(),
-                        solicitud.numeroDocumento()
-                );
-
-        return ResponseEntity.ok(resultado);
+        return ResponseEntity.ok(service.autorizarFacturaPorId(facturaId));
     }
 
     // Factura que no se puede autorizar (ej: Factura A/B sin certificado de Responsable Inscripto)

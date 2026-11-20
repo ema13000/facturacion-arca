@@ -6,6 +6,7 @@ import TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO;
 import TP.SpringBootGrupal.dtos.Factura.FacturaRequestDTO;
 import TP.SpringBootGrupal.service.FacturaPdfGenerador;
 import TP.SpringBootGrupal.service.FacturaServiceImpl;
+import TP.SpringBootGrupal.service.ReporteFacturas;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +34,24 @@ public class FacturaRestController {
     @GetMapping
     public ResponseEntity<List<FacturaReporteDTO>> findAll() {
         return ResponseEntity.ok(service.findAllParaListado());
+    }
+
+    @PostMapping(value = "/reportes/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    public ResponseEntity<byte[]> reportePdf(@RequestBody List<Long> ids) {
+        return descargarReporte("pdf", MediaType.APPLICATION_PDF, ReporteFacturas.pdf(service.findParaReporte(ids)));
+    }
+
+    @PostMapping("/reportes/xlsx")
+    public ResponseEntity<byte[]> reporteExcel(@RequestBody List<Long> ids) {
+        MediaType excel = MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        return descargarReporte("xlsx", excel, ReporteFacturas.excel(service.findParaReporte(ids)));
+    }
+
+    private ResponseEntity<byte[]> descargarReporte(String extension, MediaType tipo, byte[] contenido) {
+        return ResponseEntity.ok()
+                .contentType(tipo)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"reporte-facturas." + extension + "\"")
+                .body(contenido);
     }
 
     @PutMapping("/{id}/estado")

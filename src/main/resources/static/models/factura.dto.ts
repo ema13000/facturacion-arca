@@ -25,7 +25,10 @@ export interface FacturaReporteDTO {
     cantidadItems: number;
     estado: string;
     observaciones: string | null;
-    clienteCuitCuil: string | null;
+    clienteCuit: string | null;
+    clienteNombreCompleto: string;
+    condicionIvaId: number;
+    informadaArca: boolean;
     tipoComprobante?: string;
 }
 
@@ -33,7 +36,9 @@ export interface FacturaFiltrosDTO {
     cliente?: string;
     estado?: string;
     numeroFactura?: string;
-    condicionIva?: string;
+    condicionIvaId?: string;
+    montoMinimo?: number;
+    informadaArca?: boolean;
     fechaDesde?: string;
     fechaHasta?: string;
 }
@@ -56,7 +61,7 @@ export interface OpcionDTO {
 
 export interface ClienteExplorerDTO {
     id: number;
-    cuitCuil: string;
+    cuit: string;
     denominacion: string;
     nombre: string | null;
     apellido: string | null;
@@ -85,7 +90,7 @@ export interface FacturaImpresionDTO {
     puntoVentaDescripcion: string;
     fechaEmision: string;
     clienteDenominacion: string;
-    clienteCuitCuil: string | null;
+    clienteCuit: string | null;
     condicionIva: string;
     importeTotal: number;
     cae: string;

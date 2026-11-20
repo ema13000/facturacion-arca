@@ -3,9 +3,12 @@ package TP.SpringBootGrupal.arca;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyFactory;
+import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.InputStream;
@@ -14,6 +17,7 @@ import java.security.cert.X509Certificate;
 import java.nio.charset.StandardCharsets;
 import java.security.Security;
 import java.util.Collections;
+import java.util.HexFormat;
 
 import org.bouncycastle.cert.jcajce.JcaCertStore;
 import org.bouncycastle.cms.CMSProcessableByteArray;
@@ -26,7 +30,6 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -37,14 +40,27 @@ import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
 @Component
 public class AfipWsaaClient {
 
+    private final CacheTicketsWsaa cache = new CacheTicketsWsaa(directorioTickets(), Clock.systemUTC());
+
+    private static Path directorioTickets() {
+        String localAppData = System.getenv("LOCALAPPDATA");
+        Path perfil = localAppData == null || localAppData.isBlank()
+                ? Path.of(System.getProperty("user.home"), ".springbootgrupal")
+                : Path.of(localAppData, "SpringBootGrupal");
+        return perfil.resolve("wsaa-homologacion-wsfe");
+    }
+
     public String generarTra() {
-        ZonedDateTime ahora = ZonedDateTime.now();
+        ZonedDateTime ahora = ZonedDateTime.now().withNano(0);
 
         long identificador = ahora.toEpochSecond();
 
@@ -58,6 +74,7 @@ public class AfipWsaaClient {
                 <?xml version="1.0" encoding="UTF-8"?>
                 <loginTicketRequest version="1.0">
                     <header>
+                        <destination>cn=wsaahomo,o=afip,c=ar,serialNumber=CUIT 33693450239</destination>
                         <uniqueId>%d</uniqueId>
                         <generationTime>%s</generationTime>
                         <expirationTime>%s</expirationTime>
@@ -139,7 +156,7 @@ public class AfipWsaaClient {
             <?xml version="1.0" encoding="UTF-8"?>
             <soapenv:Envelope
                 xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                xmlns:wsaa="http://wsaa.afip.gov.ar/ws/services/LoginCms">
+                xmlns:wsaa="http://wsaa.view.sua.dvadac.desein.afip.gov">
                 <soapenv:Header/>
                 <soapenv:Body>
                     <wsaa:loginCms>
@@ -150,36 +167,60 @@ public class AfipWsaaClient {
             """.formatted(cmsBase64);
     }
 
-    private String enviarSoap(String mensajeSoap) throws Exception {
-        HttpClient cliente = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
-
+    private CacheTicketsWsaa.Ticket enviarSoap(String mensajeSoap) throws Exception {
         HttpRequest peticion = HttpRequest.newBuilder()
                 .uri(URI.create(
                         "https://wsaahomo.afip.gov.ar/ws/services/LoginCms"
                 ))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "text/xml; charset=utf-8")
-                .header("SOAPAction", "\"loginCms\"")
+                .header("SOAPAction", "\"\"")
                 .POST(HttpRequest.BodyPublishers.ofString(
                         mensajeSoap,
                         StandardCharsets.UTF_8
                 ))
                 .build();
 
-        HttpResponse<String> respuesta = cliente.send(
+        HttpResponse<String> respuesta = ConexionArca.HTTP.send(
                 peticion,
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
         );
 
-        if (respuesta.statusCode() != 200) {
-            throw new IllegalStateException(
-                    "WSAA respondió con HTTP " + respuesta.statusCode()
-            );
+        return procesarRespuesta(respuesta.statusCode(), respuesta.body());
+    }
+
+    CacheTicketsWsaa.Ticket procesarRespuesta(int estado, String respuestaSoap) throws Exception {
+        Document soap;
+        try {
+            soap = leerXml(respuestaSoap);
+        } catch (SAXException | java.io.IOException error) {
+            throw new IllegalStateException("WSAA respondió con HTTP " + estado, error);
         }
 
-        return respuesta.body();
+        NodeList fallos = soap.getElementsByTagNameNS("http://schemas.xmlsoap.org/soap/envelope/", "Fault");
+        if (fallos.getLength() > 0) {
+            Element fallo = (Element) fallos.item(0);
+            String codigo = texto(fallo, "faultcode").replaceFirst("^.*:", "");
+            String explicacion = switch (codigo) {
+                case "coe.alreadyAuthenticated" -> "Ya existe un ticket vigente fuera de esta sesión. "
+                        + "Si se generó con otra aplicación, usá el ticket de esa aplicación o esperá su vencimiento.";
+                case "coe.notAuthorized" -> "El certificado de homologación debe estar asociado al servicio wsfe en WSASS.";
+                case "cms.cert.expired", "cms.cert.invalid", "cms.cert.untrusted" ->
+                        "Verificá la vigencia del certificado y que haya sido emitido para homologación.";
+                case "cms.sign.invalid" -> "Verificá que la clave privada corresponda al certificado de homologación.";
+                default -> texto(fallo, "faultstring");
+            };
+            throw new IllegalStateException("WSAA " + codigo + ": " + explicacion);
+        }
+        if (estado != 200) {
+            throw new IllegalStateException("WSAA respondió con HTTP " + estado);
+        }
+        return extraerTicket(soap);
+    }
+
+    private String texto(Element elemento, String etiqueta) {
+        var resultados = elemento.getElementsByTagNameNS("*", etiqueta);
+        return resultados.getLength() == 0 ? "" : resultados.item(0).getTextContent().strip();
     }
 
     private Document leerXml(String xml) throws Exception {
@@ -194,16 +235,12 @@ public class AfipWsaaClient {
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
 
-        return factory.newDocumentBuilder().parse(
-                new InputSource(new StringReader(xml))
-        );
+        var lector = factory.newDocumentBuilder();
+        lector.setErrorHandler(new DefaultHandler());
+        return lector.parse(new InputSource(new StringReader(xml)));
     }
 
-    private CredencialesArca extraerCredenciales(
-            String respuestaSoap
-    ) throws Exception {
-
-        Document soap = leerXml(respuestaSoap);
+    private CacheTicketsWsaa.Ticket extraerTicket(Document soap) throws Exception {
 
         NodeList resultados = soap.getElementsByTagNameNS(
                 "*", "loginCmsReturn"
@@ -236,7 +273,12 @@ public class AfipWsaaClient {
             );
         }
 
-        return new CredencialesArca(token, sign);
+        String vencimiento = texto(resultado.getDocumentElement(), "expirationTime");
+        if (vencimiento.isBlank()) {
+            throw new IllegalStateException("WSAA devolvió un ticket sin fecha de vencimiento");
+        }
+        return new CacheTicketsWsaa.Ticket(new CredencialesArca(token, sign),
+                OffsetDateTime.parse(vencimiento).toInstant());
     }
 
     public CredencialesArca obtenerCredenciales(
@@ -244,21 +286,13 @@ public class AfipWsaaClient {
             Path rutaCertificado
     ) throws Exception {
 
-        PrivateKey clavePrivada =
-                cargarClavePrivada(rutaClavePrivada);
-
-        X509Certificate certificado =
-                cargarCertificado(rutaCertificado);
-
-        String tra = generarTra();
-
-        String cmsBase64 = firmarTra(tra, clavePrivada, certificado);
-
-        String mensajeSoap = crearMensajeSoap(cmsBase64);
-
-        String respuestaSoap = enviarSoap(mensajeSoap);
-
-        return extraerCredenciales(respuestaSoap);
+        X509Certificate certificado = cargarCertificado(rutaCertificado);
+        String huella = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(certificado.getEncoded()));
+        return cache.obtener(huella, () -> {
+            PrivateKey clavePrivada = cargarClavePrivada(rutaClavePrivada);
+            String cms = firmarTra(generarTra(), clavePrivada, certificado);
+            return enviarSoap(crearMensajeSoap(cms));
+        });
     }
 
 }

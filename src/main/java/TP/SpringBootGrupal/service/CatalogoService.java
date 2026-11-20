@@ -123,7 +123,7 @@ public class CatalogoService {
 
     private ClienteExplorerDTO aClienteDTO(Cliente cliente) {
         var condicion = cliente.getCondicionIva();
-        return new ClienteExplorerDTO(cliente.getId(), cliente.getCuitCuil(), cliente.getDenominacion(),
+        return new ClienteExplorerDTO(cliente.getId(), cliente.getCuit(), cliente.getDenominacion(),
                 cliente.getNombre(), cliente.getApellido(),
                 condicion == null ? null : condicion.getId(),
                 condicion == null ? null : condicion.getDenominacion(),
@@ -147,7 +147,7 @@ public class CatalogoService {
                     return new PuntoVentaDTO(
                             punto.getId(),
                             punto.getNumero() + " - " + punto.getDescripcion()
-                                    + (inscripto ? " (Resp. Inscripto)" : " (Monotributo)"),
+                                    + (inscripto ? " (Resp. Inscripto)" : ""),
                             inscripto
                     );
                 })
@@ -157,6 +157,7 @@ public class CatalogoService {
     @Transactional(readOnly = true)
     public List<OpcionDTO> obtenerTiposMoneda() {
         return tipoMonedaRepository.findAll().stream()
+                .filter(moneda -> !moneda.esDolarEstadounidense())
                 .map(moneda -> new OpcionDTO(
                         moneda.getId(),
                         moneda.getDenominacion() + " (" + moneda.getSimbolo() + ")"
@@ -167,6 +168,7 @@ public class CatalogoService {
     @Transactional(readOnly = true)
     public List<OpcionDTO> obtenerCondicionesIva() {
         return condicionIvaRepository.findAll().stream()
+                .filter(condicion -> condicion.getCodigoAfip() != TipoComprobante.EXENTO)
                 .map(condicion -> new OpcionDTO(
                         condicion.getId(), condicion.getDenominacion()
                 ))

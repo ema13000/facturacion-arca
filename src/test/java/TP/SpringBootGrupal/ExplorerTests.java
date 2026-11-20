@@ -77,20 +77,25 @@ class ExplorerTests {
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {0, 41})
-    void generaElNumeroSiguienteDelPuntoDeVenta(long ultimo) {
+    @ValueSource(longs = {1, 2})
+    void usaElIdentificadorGeneradoComoNumeroInternoSinAsignarNumeroFiscal(long puntoId) {
         when(precios.findById(25L)).thenReturn(Optional.of(precio(25, 100)));
         when(usuarios.findById(1L)).thenReturn(Optional.of(new Usuario()));
         when(condiciones.findById(1L)).thenReturn(Optional.of(new CondicionIva()));
         when(monedas.findById(1L)).thenReturn(Optional.of(new TipoMoneda()));
-        when(puntos.findById(1L)).thenReturn(Optional.of(new PuntoVenta()));
-        when(facturas.obtenerUltimoNumero(1L)).thenReturn(ultimo);
-        when(facturas.save(any(FacturaVenta.class))).thenAnswer(invocacion -> invocacion.getArgument(0));
+        when(puntos.findById(puntoId)).thenReturn(Optional.of(new PuntoVenta()));
+        when(facturas.save(any(FacturaVenta.class))).thenAnswer(invocacion -> {
+            FacturaVenta factura = invocacion.getArgument(0);
+            assertNull(factura.getNumero(), "El borrador no reserva un número fiscal");
+            factura.setId(40L + puntoId);
+            return factura;
+        });
         var servicio = new FacturaServiceImpl(facturas, clientes, condiciones, monedas, puntos, precios, usuarios);
-        var dto = new FacturaRequestDTO(null, 1L, 1L, 1L,
+        var dto = new FacturaRequestDTO(null, 1L, 1L, puntoId,
                 List.of(new FacturaDetalleRequestDTO(25L, 1.0, 0.0)));
         var resultado = servicio.save(dto, 1L, 0);
-        assertEquals(Long.valueOf(ultimo + 1), resultado.getNumeroFactura());
+        assertEquals(resultado.getId(), resultado.getNumeroFactura());
+        assertEquals(Long.valueOf(40 + puntoId), resultado.getNumeroFactura());
     }
 
     @ParameterizedTest
@@ -133,7 +138,7 @@ class ExplorerTests {
         Cliente activo = new Cliente();
         activo.setId(7L);
         activo.setDenominacion("Librería");
-        activo.setCuitCuil("20123456789");
+        activo.setCuit("20123456789");
         activo.setNombre("Juan");
         activo.setApellido("Pérez");
         Cliente baja = new Cliente();
@@ -144,7 +149,7 @@ class ExplorerTests {
         assertEquals(1, resultado.size());
         assertEquals(7L, resultado.get(0).id());
         assertEquals("Librería", resultado.get(0).denominacion());
-        assertEquals("20123456789", resultado.get(0).cuitCuil());
+        assertEquals("20123456789", resultado.get(0).cuit());
         assertEquals("Juan", resultado.get(0).nombre());
         assertEquals("Pérez", resultado.get(0).apellido());
         verify(clientes, never()).findAll();
@@ -180,11 +185,26 @@ class ExplorerTests {
         FacturaVenta factura = new FacturaVenta();
         Cliente cliente = new Cliente();
         cliente.setDenominacion("Librería");
-        cliente.setCuitCuil("20123456786");
+        cliente.setCuit("20123456786");
         factura.setCliente(cliente);
         factura.setCondicionIva(new CondicionIva());
         factura.setPuntoVenta(new PuntoVenta());
-        assertEquals("20123456786", TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).getClienteCuitCuil());
+        factura.setId(43L);
+        factura.setNumero(1L);
+        cliente.setNombre("Juan");
+        cliente.setApellido("Pérez");
+        var datos = TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura);
+        assertEquals(43L, datos.getNumeroFactura());
+        assertEquals(1L, factura.getNumero());
+        assertEquals("20123456786", datos.getClienteCuit());
+        assertEquals("Juan Pérez", datos.getClienteNombreCompleto());
+        assertFalse(datos.isInformadaArca());
+
+        factura.setResultadoAfip("R");
+        assertTrue(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).isInformadaArca());
+        factura.setResultadoAfip(null);
+        factura.setCae("12345678901234");
+        assertTrue(TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO.toDTO(factura).isInformadaArca());
     }
 
     @Test
@@ -206,7 +226,7 @@ class ExplorerTests {
     @Test
     void noDuplicaClientesDePruebaQueYaExisten() {
         when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
-        when(clientes.findFirstByCuitCuil(anyString())).thenAnswer(i -> {
+        when(clientes.findFirstByCuit(anyString())).thenAnswer(i -> {
             Cliente existente = new Cliente();
             existente.setNombre("Ya cargado");
             return Optional.of(existente);
@@ -232,13 +252,13 @@ class ExplorerTests {
     @ValueSource(booleans = {false, true})
     void completaNombreYApellidoDeClientesDePruebaYaCargados(boolean yaTieneNombre) {
         Cliente existente = new Cliente();
-        existente.setCuitCuil("20123456786");
+        existente.setCuit("20123456786");
         if (yaTieneNombre) {
             existente.setNombre("Otro");
             existente.setApellido("Nombre");
         }
         when(clientes.count()).thenReturn(5L);
-        when(clientes.findFirstByCuitCuil("20123456786")).thenReturn(Optional.of(existente));
+        when(clientes.findFirstByCuit("20123456786")).thenReturn(Optional.of(existente));
         new DatosIniciales(clientes, usuarios, contactos, domicilios, condiciones).run();
         if (yaTieneNombre) {
             verify(clientes, never()).save(any(Cliente.class));

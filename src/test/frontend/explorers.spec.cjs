@@ -9,9 +9,9 @@ let server;
 let origin;
 const root = path.resolve(__dirname, '../../main/resources/static');
 const clientes = [
-    { id: 7, cuitCuil: '20123456789', denominacion: 'Librería Centro', nombre: 'Juan', apellido: 'Pérez',
+    { id: 7, cuit: '20123456789', denominacion: 'Librería Centro', nombre: 'Juan', apellido: 'Pérez',
         condicionIvaId: 3, condicionIva: 'Responsable Monotributo', condicionIvaCodigo: 6 },
-    { id: 9, cuitCuil: '20987654321', denominacion: 'Escuela Norte', nombre: 'María', apellido: 'González',
+    { id: 9, cuit: '20987654321', denominacion: 'Escuela Norte', nombre: 'María', apellido: 'González',
         condicionIvaId: null, condicionIva: null, condicionIvaCodigo: null }
 ];
 const condiciones = [
@@ -43,7 +43,7 @@ const hoyISO = (dias = 0) => {
     fecha.setDate(fecha.getDate() + dias);
     return `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
 };
-const reporte = { id: 1, numeroFactura: 1, fechaEmision: '2026-10-23', clienteDenominacion: 'Librería Centro', condicionIva: 'IVA', puntoVentaDescripcion: 'Centro', importeTotal: 100, estado: 'PENDIENTE' };
+const reporte = { id: 1, numeroFactura: 1, fechaEmision: hoyISO(), clienteDenominacion: 'Librería Centro', condicionIva: 'IVA', puntoVentaDescripcion: 'Centro', importeTotal: 100, estado: 'PENDIENTE' };
 const coincide = (texto, valores) => valores.join(' ').toLowerCase().includes((texto ?? '').toLowerCase());
 
 test.beforeAll(async () => {
@@ -70,7 +70,7 @@ test.beforeEach(async ({ page }) => {
         page.pedidos.push(url);
         const texto = url.searchParams.get('texto');
         let body = [{ id: 1, descripcion: 'Opción' }];
-        if (url.pathname.endsWith('/clientes')) body = clientes.filter(c => coincide(texto, [c.cuitCuil, c.denominacion]));
+        if (url.pathname.endsWith('/clientes')) body = clientes.filter(c => coincide(texto, [c.cuit, c.denominacion]));
         else if (/\/clientes\/\d+$/.test(url.pathname)) body = clientes.find(c => url.pathname.endsWith('/' + c.id));
         else if (url.pathname.endsWith('/listas-precio')) body = listas;
         else if (url.pathname.endsWith('/condiciones-iva')) body = condiciones;
@@ -145,7 +145,7 @@ test('busca clientes en el servidor con el botón y permite consumidor final', a
     await page.locator('#explorerFilas button').click();
     await expect(page.locator('#clienteDescripcion')).toHaveValue('Librería Centro');
     await expect(page.locator('#inputCliente')).toHaveValue('7');
-    await expect(page.locator('#clienteDetalle')).toHaveText('Juan Pérez · CUIT/CUIL 20-12345678-9');
+    await expect(page.locator('#clienteDetalle')).toHaveText('Juan Pérez · CUIT 20-12345678-9');
     await expect(page.locator('#btnQuitarCliente')).toBeVisible();
     await expect(page.locator('#btnQuitarCliente')).toContainText('Quitar cliente');
     await page.locator('#btnQuitarCliente').click();
@@ -262,12 +262,10 @@ test('no guarda una factura sin artículos', async ({ page }) => {
     await page.locator('#tabNueva').click();
     await expect(page.locator('#tbodyRenglones')).toContainText('Todavía no agregaste artículos');
     for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
-    const dialogo = page.waitForEvent('dialog');
-    const guardar = page.locator('#btnGuardarFactura').click();
-    const alerta = await dialogo;
-    expect(alerta.message()).toContain('Agregá al menos un artículo');
-    await alerta.accept();
-    await guardar;
+    await page.locator('#btnGuardarFactura').click();
+    const aviso = page.getByRole('dialog', { name: 'No se pudo guardar' });
+    await expect(aviso).toContainText('Agregá al menos un artículo');
+    await aviso.getByRole('button', { name: 'Entendido' }).click();
     await expect(page.locator('#seccionAlta')).toBeVisible();
 });
 
@@ -302,7 +300,7 @@ test('las acciones dependen del estado de la factura', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: lista }));
     await page.locator('#btnAplicarFiltros').click();
     const [autorizada, pendiente, anulada] = [0, 1, 2].map(i => page.locator('#tbodyFacturas tr').nth(i));
-    await expect(autorizada.getByRole('button')).toHaveText(['Anular', 'Imprimir', 'Descargar PDF']);
+    await expect(autorizada.getByRole('button')).toHaveText(['Anular', 'Ver factura']);
     await expect(pendiente.getByRole('button')).toHaveText(['Editar', 'Eliminar', 'Autorizar en ARCA']);
     await expect(anulada.getByRole('button')).toHaveCount(0);
 });
@@ -312,7 +310,7 @@ test('las acciones son botones con ícono y descripción al pasar el mouse', asy
         { ...reporte, id: 2, estado: 'AUTORIZADA' }, { ...reporte, id: 1, estado: 'PENDIENTE' }
     ] }));
     await page.locator('#btnAplicarFiltros').click();
-    for (const nombre of ['Editar', 'Eliminar', 'Anular', 'Imprimir', 'Descargar PDF']) {
+    for (const nombre of ['Editar', 'Eliminar', 'Anular', 'Ver factura']) {
         const boton = page.getByRole('button', { name: nombre, exact: true });
         await expect(boton).toHaveAttribute('title', new RegExp(nombre));
         await expect(boton.locator('svg')).toHaveCount(1);
@@ -337,46 +335,49 @@ test('imprimir una autorizada muestra CAE y vencimiento', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA' }] }));
     await page.route('**/api/facturas/1/impresion', route => route.fulfill({ json: {
         id: 1, numeroFactura: 15, puntoVentaNumero: 2, puntoVentaDescripcion: 'Central', fechaEmision: '2026-11-18',
-        clienteDenominacion: 'Librería Centro', clienteCuitCuil: '20123456789', condicionIva: 'Consumidor Final',
+        clienteDenominacion: 'Librería Centro', clienteCuit: '20123456789', condicionIva: 'Consumidor Final',
         importeTotal: 250, cae: '75123456789012', caeFechaVencimiento: '2026-11-28',
         detalles: [{ descripcion: 'Cuaderno azul', cantidad: 2, precioUnitario: 125, porcentajeBonificacion: 0, importeSubtotal: 250 }]
     } }));
     await page.locator('#btnAplicarFiltros').click();
     await page.addInitScript(() => { window.print = () => {}; });
     const popup = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'Imprimir' }).click();
+    await page.getByRole('button', { name: 'Ver factura' }).click();
     const ventana = await popup;
     await expect(ventana.locator('body')).toContainText('75123456789012');
     await expect(ventana.locator('body')).toContainText('28/11/2026');
     await expect(ventana.locator('body')).toContainText('0002-00000015');
     await expect(ventana.locator('body')).toContainText('Cuaderno azul');
     await expect(ventana.locator('body')).toContainText('$250.00');
+    const imprimir = ventana.getByRole('button', { name: 'Imprimir factura' });
+    await expect(imprimir).toHaveClass('btn-primario');
+    await ventana.evaluate(() => { window.print = () => { window.sePidioImpresion = true; }; });
+    await imprimir.click();
+    expect(await ventana.evaluate(() => window.sePidioImpresion)).toBe(true);
+    await ventana.emulateMedia({ media: 'print' });
+    await expect(imprimir).toBeHidden();
 });
 
-test('descargar PDF de una autorizada baja el archivo del backend', async ({ page }) => {
-    await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA' }] }));
-    await page.route('**/api/facturas/1/pdf', route => route.fulfill({
-        status: 200, contentType: 'application/pdf', body: '%PDF-1.4 prueba',
-        headers: {
-            'Content-Disposition': 'attachment; filename="factura-C-0002-00000015.pdf"',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Expose-Headers': 'Content-Disposition'
-        }
-    }));
-    await page.locator('#btnAplicarFiltros').click();
-    const descarga = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Descargar PDF' }).click();
-    expect((await descarga).suggestedFilename()).toBe('factura-C-0002-00000015.pdf');
+test('mantiene los reportes a la derecha y quita los textos secundarios pedidos', async ({ page }) => {
+    await expect(page.getByText('Facturas A, B y C · ARCA')).toHaveCount(0);
+    const barra = page.locator('.acciones-comprobantes');
+    const ultimoReporte = page.getByRole('button', { name: 'Reporte Excel' });
+    await expect(ultimoReporte).toBeVisible();
+    const [grupo, boton] = await Promise.all([barra.boundingBox(), ultimoReporte.boundingBox()]);
+    expect(Math.abs(grupo.x + grupo.width - boton.x - boton.width)).toBeLessThan(1);
+
+    await page.locator('#tabNueva').click();
+    await expect(page.locator('#inputFechaEmision').locator('..').locator('small')).toHaveCount(0);
 });
 
-test('si el backend rechaza el PDF se muestra el motivo', async ({ page }) => {
+test('si el backend rechaza la vista de la factura se muestra el motivo', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA' }] }));
-    await page.route('**/api/facturas/1/pdf', route => route.fulfill({
+    await page.route('**/api/facturas/1/impresion', route => route.fulfill({
         status: 409, json: { mensaje: 'Solo se pueden imprimir facturas autorizadas en ARCA' }
     }));
     await page.locator('#btnAplicarFiltros').click();
     const dialogo = page.waitForEvent('dialog');
-    await page.getByRole('button', { name: 'Descargar PDF' }).click();
+    await page.getByRole('button', { name: 'Ver factura' }).click();
     const alerta = await dialogo;
     expect(alerta.message()).toContain('Solo se pueden imprimir facturas autorizadas');
     await alerta.accept();
@@ -453,17 +454,58 @@ test('guardar deja la factura pendiente y no la manda a ARCA', async ({ page }) 
     await agregarArticulo(page, 'A8', '1');
     await expect(page.locator('#tbodyRenglones')).toContainText('Cuaderno');
     for (const id of ['inputPuntoVenta', 'inputMoneda']) await page.locator('#' + id).selectOption('1');
-    const mensajes = [];
-    page.on('dialog', dialog => { mensajes.push(dialog.message()); dialog.accept(); });
     await page.locator('#btnGuardarFactura').click();
     await expect(page.locator('#seccionListado')).toBeVisible();
+    const aviso = page.getByRole('dialog', { name: 'Factura guardada' });
+    await expect(aviso).toContainText('Pendiente de enviar a ARCA');
+    await aviso.getByRole('button', { name: 'Entendido' }).click();
+    await expect(aviso).toBeHidden();
     expect(page.pedidos.some(u => u.pathname.endsWith('/autorizar-arca'))).toBe(false);
-    expect(mensajes.join(' ')).toContain('PENDIENTE');
 });
 
-test('autorizar en ARCA es un paso aparte que pide el tipo de documento del cliente', async ({ page }) => {
+test('filtra monto, CUIT, IVA y envío a ARCA y exporta ese listado', async ({ page }) => {
     await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
-        { ...reporte, id: 5, numeroFactura: 5, clienteCuitCuil: '20123456789' }
+        { ...reporte, id: 11, clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 500, informadaArca: true },
+        { ...reporte, id: 12, clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 499, informadaArca: true },
+        { ...reporte, id: 13, clienteCuit: '20123456789', condicionIvaId: 3, importeTotal: 700, informadaArca: false },
+        { ...reporte, id: 14, clienteCuit: '20123456789', condicionIvaId: 2, importeTotal: 800, informadaArca: true },
+        { ...reporte, id: 15, clienteCuit: '20987654321', condicionIvaId: 3, importeTotal: 900, informadaArca: true }
+    ] }));
+    await page.locator('#txtFiltroCliente').fill('20-12345678-9');
+    await page.locator('#txtMontoMinimo').fill('500');
+    await page.locator('#selFiltroIva').selectOption({ label: 'Responsable Monotributo' });
+    await page.locator('#selFiltroArca').selectOption('informadas');
+    await page.locator('#btnAplicarFiltros').click();
+    await expect(page.locator('#contadorFacturas')).toHaveText('1 comprobante(s)');
+
+    for (const [formato, boton] of [['pdf', 'Reporte PDF'], ['xlsx', 'Reporte Excel']]) {
+        const url = '**/api/facturas/reportes/' + formato;
+        await page.route(url, route => route.fulfill({ body: 'reporte' }));
+        const pedido = page.waitForRequest(url);
+        const descarga = page.waitForEvent('download');
+        await page.getByRole('button', { name: boton }).click();
+        expect((await pedido).postDataJSON()).toEqual([11]);
+        expect((await descarga).suggestedFilename()).toBe('reporte-facturas.' + formato);
+    }
+
+    await page.locator('#selFiltroArca').selectOption('no-informadas');
+    await page.locator('#btnAplicarFiltros').click();
+    await expect(page.locator('#tbodyFacturas')).toContainText('700');
+});
+
+test('bloquea el envío a ARCA de una factura pendiente anterior a hoy', async ({ page }) => {
+    await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 22, clienteCuit: '20123456789', fechaEmision: hoyISO(-1) }
+    ] }));
+    await page.locator('#btnAplicarFiltros').click();
+    const boton = page.getByRole('button', { name: 'Autorizar en ARCA' });
+    await expect(boton).toBeDisabled();
+    await expect(boton).toHaveAttribute('title', /anterior a hoy/i);
+});
+
+test('autorizar en ARCA muestra el CUIT del cliente y envía solo el ID de factura', async ({ page }) => {
+    await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
+        { ...reporte, id: 5, numeroFactura: 5, clienteCuit: '20123456789' }
     ] }));
     await page.locator('#btnAplicarFiltros').click();
     await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
@@ -471,27 +513,38 @@ test('autorizar en ARCA es un paso aparte que pide el tipo de documento del clie
     await expect(dialogo).toBeVisible();
     await expect(dialogo).toContainText('Librería Centro');
     await expect(dialogo).toContainText('20-12345678-9');
-    await page.locator('#autorizarTipoDocumento').selectOption('86');
+    await expect(dialogo.locator('select')).toHaveCount(0);
     const pedido = page.waitForRequest(r => r.url().includes('/autorizar-arca'));
-    const alerta = page.waitForEvent('dialog');
     await page.locator('#btnConfirmarAutorizar').click();
-    await (await alerta).accept();
-    expect((await pedido).postDataJSON()).toEqual({ tipoDocumento: 86, numeroDocumento: 20123456789 });
+    const aviso = page.getByRole('dialog', { name: 'Factura autorizada' });
+    await expect(aviso).toBeVisible();
+    await expect(aviso).not.toContainText('CAE');
+    expect((await pedido).postData()).toBeNull();
 });
 
-test('autorizar a consumidor final no pide tipo de documento', async ({ page }) => {
+test('autoriza una factura C de consumidor final sin identificar', async ({ page }) => {
     await page.route(url => url.pathname === '/api/facturas', route => route.fulfill({ json: [
-        { ...reporte, id: 6, clienteDenominacion: 'Consumidor Final', clienteCuitCuil: null }
+        { ...reporte, id: 6, clienteDenominacion: 'Consumidor Final', clienteCuit: null }
     ] }));
     await page.locator('#btnAplicarFiltros').click();
     await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
-    await expect(page.locator('#autorizarTipoDocumento')).toBeHidden();
-    await expect(page.locator('#autorizarDialog')).toContainText('sin identificar');
-    const pedido = page.waitForRequest(r => r.url().includes('/autorizar-arca'));
-    const alerta = page.waitForEvent('dialog');
+    await expect(page.locator('#autorizarCuit')).toHaveText('Sin identificar');
+    const pedido = page.waitForRequest('**/api/facturas/6/autorizar-arca');
     await page.locator('#btnConfirmarAutorizar').click();
-    await (await alerta).accept();
-    expect((await pedido).postDataJSON()).toEqual({ tipoDocumento: 99, numeroDocumento: 0 });
+    await expect(page.getByRole('dialog', { name: 'Factura autorizada' })).toBeVisible();
+    expect((await pedido).method()).toBe('POST');
+});
+
+test('muestra el rechazo por CUIT en lenguaje simple', async ({ page }) => {
+    await page.route('**/api/facturas/1/autorizar-arca', route => route.fulfill({ json: {
+        resultado: { resultado: 'R', observaciones: ['10015Comprobante C, DocNro 20334447775 no registrado'] }
+    } }));
+    await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
+    await page.locator('#btnConfirmarAutorizar').click();
+    const aviso = page.getByRole('dialog', { name: 'ARCA rechazó la factura' });
+    await expect(aviso).toContainText('Revisá el CUIT del cliente. La factura sigue pendiente.');
+    await expect(aviso).not.toContainText('10015');
+    await expect(aviso).not.toContainText('20334447775');
 });
 
 test('una búsqueda sin coincidencias se informa', async ({ page }) => {
@@ -515,6 +568,7 @@ test('sin cliente la condición de IVA queda en Consumidor Final y no se puede c
     const condicion = page.locator('#inputCondicionIva');
     await expect(condicion).toHaveValue('1');
     await expect(condicion).toBeDisabled();
+    await expect(condicion).toHaveCSS('appearance', 'none');
 });
 
 test('al elegir un cliente se pone su categoría fija; al quitarlo vuelve a Consumidor Final', async ({ page }) => {
@@ -571,10 +625,8 @@ test('el listado muestra la letra de cada factura', async ({ page }) => {
 test('autorizar una Factura A avisa que falta el certificado de Responsable Inscripto', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, tipoComprobante: 'A' }] }));
     await page.locator('#btnAplicarFiltros').click();
-    let mensaje = '';
-    page.once('dialog', dialogo => { mensaje = dialogo.message(); void dialogo.accept(); });
     await page.getByRole('button', { name: 'Autorizar en ARCA' }).click();
-    await expect.poll(() => mensaje).toContain('Responsable Inscripto');
+    await expect(page.getByRole('dialog', { name: 'No se pudo enviar a ARCA' })).toContainText('Responsable Inscripto');
     await expect(page.locator('#autorizarDialog')).not.toBeVisible();
     expect(page.pedidos.some(u => u.pathname.endsWith('/autorizar-arca'))).toBe(false);
 });
@@ -583,7 +635,7 @@ test('imprimir una Factura A muestra la letra y el IVA', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA', tipoComprobante: 'A' }] }));
     await page.route('**/api/facturas/1/impresion', route => route.fulfill({ json: {
         id: 1, numeroFactura: 3, puntoVentaNumero: 2, puntoVentaDescripcion: 'Sucursal RI', fechaEmision: '2026-11-18',
-        clienteDenominacion: 'Sofía Indovino', clienteCuitCuil: '27381112220', condicionIva: 'IVA Responsable Inscripto',
+        clienteDenominacion: 'Sofía Indovino', clienteCuit: '27381112220', condicionIva: 'IVA Responsable Inscripto',
         importeTotal: 1210, cae: '75123456789012', caeFechaVencimiento: '2026-11-28', tipoComprobante: 'A',
         importeNeto: 1000, importeIva: 210,
         detalles: [{ descripcion: 'Resma', cantidad: 1, precioUnitario: 1210, porcentajeBonificacion: 0, importeSubtotal: 1210 }]
@@ -591,7 +643,7 @@ test('imprimir una Factura A muestra la letra y el IVA', async ({ page }) => {
     await page.locator('#btnAplicarFiltros').click();
     await page.addInitScript(() => { window.print = () => {}; });
     const popup = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'Imprimir' }).click();
+    await page.getByRole('button', { name: 'Ver factura' }).click();
     const ventana = await popup;
     await expect(ventana.locator('.letra')).toHaveText('A');
     await expect(ventana.locator('body')).toContainText('Neto gravado: $1,000.00');

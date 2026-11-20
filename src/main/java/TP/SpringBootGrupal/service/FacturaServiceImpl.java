@@ -18,7 +18,9 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class FacturaServiceImpl implements FacturaService {
@@ -76,10 +78,6 @@ public class FacturaServiceImpl implements FacturaService {
 
         aplicarDatos(dto, factura, porcentajeIva);
 
-        // El número se genera solo: siguiente al último del punto de venta
-        long ultimoNumero = facturaVentaRepository.obtenerUltimoNumero(dto.puntoVentaId());
-        factura.setNumero(ultimoNumero + 1);
-
         factura = facturaVentaRepository.save(factura);
 
         return FacturaReporteDTO.toDTO(factura);
@@ -128,7 +126,7 @@ public class FacturaServiceImpl implements FacturaService {
 
         if (estaAutorizada(factura)) {
             throw new IllegalStateException(
-                    "La factura " + factura.getNumero() + " está autorizada en ARCA y no se puede editar"
+                    "La factura " + factura.getId() + " está autorizada en ARCA y no se puede editar"
             );
         }
 
@@ -156,7 +154,7 @@ public class FacturaServiceImpl implements FacturaService {
 
         if (estaAutorizada(factura)) {
             throw new IllegalStateException(
-                    "La factura " + factura.getNumero() + " está autorizada en ARCA: no se puede eliminar, solo anular"
+                    "La factura " + factura.getId() + " está autorizada en ARCA: no se puede eliminar, solo anular"
             );
         }
 
@@ -263,6 +261,9 @@ public class FacturaServiceImpl implements FacturaService {
                 .orElseThrow(() -> new RecursoNoEncontradoException(
                         "No existe el tipo de moneda"
                 ));
+        if (tipoMoneda.esDolarEstadounidense()) {
+            throw new IllegalArgumentException("La moneda en dólares ya no está disponible");
+        }
 
         PuntoVenta puntoVenta = puntoVentaRepository
                 .findById(dto.puntoVentaId())
@@ -411,11 +412,15 @@ public class FacturaServiceImpl implements FacturaService {
         if (condicionPedidaId == null) {
             throw new IllegalArgumentException("La condición de IVA es obligatoria");
         }
-        return condicionIvaRepository.findById(condicionPedidaId)
+        CondicionIva condicion = condicionIvaRepository.findById(condicionPedidaId)
                 .orElseThrow(() -> new RecursoNoEncontradoException("No existe la condición de IVA"));
+        if (condicion.getCodigoAfip() == TipoComprobante.EXENTO) {
+            throw new IllegalArgumentException("IVA Sujeto Exento ya no está disponible para elegir");
+        }
+        return condicion;
     }
 
-    private static final java.time.ZoneId ZONA_ARGENTINA = java.time.ZoneId.of("America/Argentina/Buenos_Aires");
+    static final java.time.ZoneId ZONA_ARGENTINA = java.time.ZoneId.of("America/Argentina/Buenos_Aires");
     /** ARCA acepta comprobantes de productos hasta 5 días antes o después de la fecha actual. */
     public static final int DIAS_TOLERANCIA_FECHA = 5;
     public static final int MAXIMO_OBSERVACIONES = 500;
@@ -498,10 +503,30 @@ public class FacturaServiceImpl implements FacturaService {
     public List<FacturaReporteDTO> findAllParaListado() {
         // La última factura generada aparece primero; las eliminadas (baja lógica) no se muestran
         return facturaVentaRepository.findAll().stream()
-                .filter(f -> f.getFechaBaja() == null || "ANULADA".equals(f.getEstado()))
+                .filter(this::visibleEnListado)
                 .sorted(Comparator.comparing(FacturaVenta::getId).reversed())
                 .map(FacturaReporteDTO::toDTO)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<FacturaReporteDTO> findParaReporte(List<Long> ids) {
+        if (ids.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("El listado contiene un ID de factura vacío");
+        }
+        var facturas = new HashMap<Long, FacturaVenta>();
+        facturaVentaRepository.findAllById(ids).stream()
+                .filter(this::visibleEnListado)
+                .forEach(factura -> facturas.put(factura.getId(), factura));
+        return ids.stream().distinct()
+                .map(facturas::get)
+                .filter(Objects::nonNull)
+                .map(FacturaReporteDTO::toDTO)
+                .toList();
+    }
+
+    private boolean visibleEnListado(FacturaVenta factura) {
+        return factura.getFechaBaja() == null || "ANULADA".equals(factura.getEstado());
     }
 
     @Override

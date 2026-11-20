@@ -36,7 +36,7 @@ class DatosInicialesTests {
         when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
         when(contactos.save(any(Contacto.class))).thenAnswer(i -> i.getArgument(0));
         when(domicilios.save(any(Domicilio.class))).thenAnswer(i -> i.getArgument(0));
-        when(clientes.findFirstByCuitCuil(anyString())).thenReturn(Optional.empty());
+        when(clientes.findFirstByCuit(anyString())).thenReturn(Optional.empty());
         for (int codigo : new int[]{1, 4, 5, 6}) {
             CondicionIva condicion = new CondicionIva();
             condicion.setCodigoAfip(codigo);
@@ -62,8 +62,8 @@ class DatosInicialesTests {
         List<Cliente> guardados = clientesGuardados(25);
         var cuits = new HashSet<String>();
         for (Cliente cliente : guardados) {
-            cuits.add(cliente.getCuitCuil());
-            assertEquals(11, cliente.getCuitCuil().length());
+            cuits.add(cliente.getCuit());
+            assertEquals(11, cliente.getCuit().length());
             assertFalse(cliente.getDenominacion().isBlank());
             assertFalse(cliente.getNombre().isBlank());
             assertFalse(cliente.getApellido().isBlank());
@@ -78,16 +78,16 @@ class DatosInicialesTests {
     void siYaExistenLosCincoPrimerosSoloAgregaLosQueFaltan() {
         for (String[] datos : DatosIniciales.CLIENTES_PRUEBA.subList(0, 5)) {
             Cliente existente = new Cliente();
-            existente.setCuitCuil(datos[0]);
+            existente.setCuit(datos[0]);
             existente.setNombre(datos[2]);
             existente.setCondicionIva(new CondicionIva());
-            when(clientes.findFirstByCuitCuil(datos[0])).thenReturn(Optional.of(existente));
+            when(clientes.findFirstByCuit(datos[0])).thenReturn(Optional.of(existente));
         }
 
         cargador().run();
 
         List<Cliente> guardados = clientesGuardados(20);
-        assertTrue(guardados.stream().noneMatch(c -> c.getCuitCuil().equals("20123456786")));
+        assertTrue(guardados.stream().noneMatch(c -> c.getCuit().equals("20123456786")));
     }
 
     @Test
@@ -112,9 +112,9 @@ class DatosInicialesTests {
     @Test
     void aLosClientesYaCargadosSinCategoriaSeLesAsignaUna() {
         Cliente existente = new Cliente();
-        existente.setCuitCuil("20123456786");
+        existente.setCuit("20123456786");
         existente.setNombre("Juan");
-        when(clientes.findFirstByCuitCuil(anyString())).thenReturn(Optional.of(existente));
+        when(clientes.findFirstByCuit(anyString())).thenReturn(Optional.of(existente));
 
         cargador().run();
 

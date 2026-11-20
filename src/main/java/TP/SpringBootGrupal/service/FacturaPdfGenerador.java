@@ -47,8 +47,8 @@ public class FacturaPdfGenerador {
         documento.add(Chunk.NEWLINE);
 
         documento.add(new Paragraph("Cliente: " + factura.clienteDenominacion(), NEGRITA));
-        if (factura.clienteCuitCuil() != null && !factura.clienteCuitCuil().isBlank()) {
-            documento.add(new Paragraph("CUIT/CUIL: " + factura.clienteCuitCuil(), NORMAL));
+        if (factura.clienteCuit() != null && !factura.clienteCuit().isBlank()) {
+            documento.add(new Paragraph("CUIT: " + factura.clienteCuit(), NORMAL));
         }
         documento.add(new Paragraph("Condición frente al IVA: " + factura.condicionIva(), NORMAL));
         documento.add(Chunk.NEWLINE);

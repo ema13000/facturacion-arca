@@ -35,6 +35,7 @@ public class FacturaVenta extends AuditoriaApp {
     @JoinColumn(name = "tipo_moneda_id", nullable = false)
     private TipoMoneda tipoMoneda;
     @EqualsAndHashCode.Include
+    // Número fiscal asignado por ARCA al autorizar. Los borradores nuevos usan el ID como referencia interna.
     private Long numero;
     @Column(nullable = false)
     @Temporal(TemporalType.DATE)

@@ -109,7 +109,7 @@ class FacturaPdfTests {
         var base = factura("Sofía Indovino", "27381112220", "70000000000002", fecha(2026, 12, 2));
         var facturaA = new FacturaImpresionDTO(base.id(), base.numeroFactura(), base.puntoVentaNumero(),
                 base.puntoVentaDescripcion(), base.fechaEmision(), base.clienteDenominacion(),
-                base.clienteCuitCuil(), "IVA Responsable Inscripto", 1210.0, base.cae(),
+                base.clienteCuit(), "IVA Responsable Inscripto", 1210.0, base.cae(),
                 base.caeFechaVencimiento(), base.detalles(), "A", 1000.0, 210.0);
 
         String contenido = texto(generador.generar(facturaA));

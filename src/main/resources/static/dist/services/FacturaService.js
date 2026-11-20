@@ -60,11 +60,18 @@ export class FacturaService {
         await this.comprobarRespuesta(response);
         const facturas = await response.json();
         return facturas.filter(f => {
-            const contiene = (valor, filtro) => !filtro || valor.toLowerCase().includes(filtro.trim().toLowerCase());
+            const cliente = filtros.cliente?.trim().toLocaleLowerCase('es-AR') ?? '';
+            const buscarCuit = /^[0-9][0-9\s-]*$/.test(cliente);
+            const coincideCliente = !cliente || (buscarCuit
+                ? (f.clienteCuit ?? '').replace(/[\s-]/g, '').includes(cliente.replace(/[\s-]/g, ''))
+                : [f.clienteDenominacion, f.clienteNombreCompleto]
+                    .some(nombre => nombre?.toLocaleLowerCase('es-AR').includes(cliente)));
             const fecha = f.fechaEmision.slice(0, 10);
-            return contiene(String(f.numeroFactura), filtros.numeroFactura)
-                && contiene(f.clienteDenominacion, filtros.cliente)
-                && contiene(f.condicionIva, filtros.condicionIva)
+            return (!filtros.numeroFactura || String(f.numeroFactura).includes(filtros.numeroFactura.trim()))
+                && coincideCliente
+                && (!filtros.condicionIvaId || String(f.condicionIvaId) === filtros.condicionIvaId)
+                && (filtros.montoMinimo === undefined || f.importeTotal >= filtros.montoMinimo)
+                && (filtros.informadaArca === undefined || Boolean(f.informadaArca) === filtros.informadaArca)
                 && (!filtros.estado || f.estado === filtros.estado)
                 && (!filtros.fechaDesde || fecha >= filtros.fechaDesde)
                 && (!filtros.fechaHasta || fecha <= filtros.fechaHasta);
@@ -73,12 +80,18 @@ export class FacturaService {
     obtenerImpresion(id) {
         return this.obtenerJson(`${this.baseUrl}/${id}/impresion`);
     }
-    /** PDF generado por el backend (solo facturas autorizadas, con CAE y vencimiento). */
-    async descargarPdf(id) {
-        const response = await fetch(`${this.baseUrl}/${id}/pdf`);
+    async descargarReporte(formato, ids) {
+        const response = await fetch(`${this.baseUrl}/reportes/${formato}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ids)
+        });
+        return this.leerDescarga(response, `reporte-facturas.${formato}`);
+    }
+    async leerDescarga(response, nombrePredeterminado) {
         await this.comprobarRespuesta(response);
         const disposicion = response.headers.get('Content-Disposition') ?? '';
-        const nombre = /filename="([^"]+)"/.exec(disposicion)?.[1] ?? `factura-${id}.pdf`;
+        const nombre = /filename="([^"]+)"/.exec(disposicion)?.[1] ?? nombrePredeterminado;
         return { archivo: await response.blob(), nombre };
     }
     async obtenerParaEdicion(id) {
@@ -157,17 +170,8 @@ export class FacturaService {
             throw new Error(`Error ${response.status}: ${mensaje}`);
         }
     }
-    async autorizarFactura(id, tipoDocumento, numeroDocumento) {
-        const response = await fetch(`${this.baseUrl}/${id}/autorizar-arca`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                tipoDocumento,
-                numeroDocumento
-            })
-        });
+    async autorizarFactura(id) {
+        const response = await fetch(`${this.baseUrl}/${id}/autorizar-arca`, { method: 'POST' });
         await this.comprobarRespuesta(response);
         return await response.json();
     }

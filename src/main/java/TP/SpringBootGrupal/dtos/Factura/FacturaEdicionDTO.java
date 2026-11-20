@@ -26,7 +26,7 @@ public record FacturaEdicionDTO(
                 .toList();
 
         return new FacturaEdicionDTO(
-                factura.getNumero(),
+                factura.getId(),
                 factura.getCliente() == null
                         ? null
                         : factura.getCliente().getId(),

@@ -106,11 +106,6 @@ svg {
     color: #fff;
     font-size: 1.05rem;
 }
-.marca small {
-    color: #94a3b8;
-    font-size: 0.75rem;
-}
-
 .nav-tabs {
     display: flex;
     flex-direction: column;
@@ -335,6 +330,12 @@ select:disabled {
     cursor: not-allowed;
 }
 
+#inputCondicionIva:disabled {
+    appearance: none;
+    background-image: none;
+    cursor: default;
+}
+
 input[readonly] {
     background-color: #f9fafb;
     cursor: default;
@@ -517,8 +518,20 @@ button:focus-visible {
 
 .acciones-barra {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 12px;
+}
+
+.acciones-comprobantes > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: inherit;
+}
+
+.acciones-reportes {
+    margin-inline-start: auto;
+    justify-content: flex-end;
 }
 
 .acciones-final {
@@ -700,6 +713,71 @@ tr.fila-nueva td:first-child {
     width: auto;
     min-height: 34px;
     padding: 5px 8px;
+}
+
+/* ---------- Avisos de facturación ---------- */
+
+.aviso-resultado {
+    width: min(430px, calc(100% - 32px));
+    margin: auto;
+    padding: 24px;
+    border: 1px solid var(--borde);
+    border-radius: 16px;
+    color: var(--texto);
+    background: #fff;
+    box-shadow: 0 20px 52px rgba(15, 23, 42, 0.24);
+}
+
+.aviso-resultado::backdrop {
+    background: rgba(15, 23, 42, 0.42);
+}
+
+.aviso-contenido {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.aviso-icono {
+    flex: 0 0 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.aviso-resultado[data-tipo="exito"] .aviso-icono {
+    color: #047857;
+    background: #d1fae5;
+}
+
+.aviso-icono svg {
+    width: 22px;
+    height: 22px;
+}
+
+.aviso-resultado[data-tipo="exito"] .aviso-alerta,
+.aviso-resultado:not([data-tipo="exito"]) .aviso-check {
+    display: none;
+}
+
+.aviso-contenido h2 {
+    margin: 0 0 5px;
+    font-size: 1.1rem;
+}
+
+.aviso-contenido p {
+    margin: 0;
+    color: #475569;
+    line-height: 1.5;
+}
+
+.aviso-acciones {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 20px;
 }
 
 /* ---------- Ventana de búsqueda ---------- */

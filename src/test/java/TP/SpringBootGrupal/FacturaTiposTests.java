@@ -2,6 +2,9 @@ package TP.SpringBootGrupal;
 
 import TP.SpringBootGrupal.arca.AfipWsaaClient;
 import TP.SpringBootGrupal.arca.AfipWsfeClient;
+import TP.SpringBootGrupal.arca.CredencialesArca;
+import TP.SpringBootGrupal.arca.ResultadoCae;
+import TP.SpringBootGrupal.arca.SolicitudFacturaC;
 import TP.SpringBootGrupal.dtos.Factura.FacturaRequestDTO;
 import TP.SpringBootGrupal.dtos.FacturaDetalle.FacturaDetalleRequestDTO;
 import TP.SpringBootGrupal.entities.*;
@@ -11,16 +14,22 @@ import TP.SpringBootGrupal.service.FacturacionArcaService;
 import TP.SpringBootGrupal.service.TipoComprobante;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.*;
 
 class FacturaTiposTests {
@@ -115,6 +124,19 @@ class FacturaTiposTests {
     }
 
     @Test
+    void noPermiteGuardarUnaFacturaNuevaEnDolares() {
+        TipoMoneda dolar = new TipoMoneda();
+        dolar.setCodigoAfip("DOL");
+        when(monedas.findById(1L)).thenReturn(Optional.of(dolar));
+        puntoDeVenta(false);
+
+        var error = assertThrows(IllegalArgumentException.class, () -> guardar(null, consumidorFinal.getId()));
+
+        assertTrue(error.getMessage().contains("dólares"));
+        verify(facturas, never()).save(any(FacturaVenta.class));
+    }
+
+    @Test
     void emisorInscriptoAClienteInscriptoEsFacturaAConIvaDiscriminado() {
         puntoDeVenta(true);
         cliente(7L, inscripto);
@@ -182,10 +204,128 @@ class FacturaTiposTests {
         factura.setEstado("PENDIENTE");
         factura.setTipoComprobante(letra);
 
-        var error = assertThrows(IllegalStateException.class, () -> arca.autorizarFacturaC(factura, 99, 0));
+        var error = assertThrows(IllegalStateException.class, () -> arca.autorizarFacturaC(factura));
 
         assertTrue(error.getMessage().contains("Factura " + letra), error.getMessage());
         assertTrue(error.getMessage().contains("Responsable Inscripto"), error.getMessage());
+        verifyNoInteractions(wsaa, wsfe);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,80,20123456786,1", "true,99,0,5"})
+    void arcaUsaElDocumentoQueCorrespondeAlReceptor(boolean anonimo, int tipo, long documento, int iva,
+                                                  @TempDir Path archivos) throws Exception {
+        AfipWsaaClient wsaa = mock(AfipWsaaClient.class);
+        AfipWsfeClient wsfe = mock(AfipWsfeClient.class);
+        FacturacionArcaService arca = new FacturacionArcaService(wsaa, wsfe, facturas);
+        Path clave = Files.createFile(archivos.resolve("clave"));
+        Path certificado = Files.createFile(archivos.resolve("certificado"));
+        long cuitEmisor = 20216874561L;
+        ReflectionTestUtils.setField(arca, "cuit", cuitEmisor);
+        ReflectionTestUtils.setField(arca, "rutaClavePrivada", clave.toString());
+        ReflectionTestUtils.setField(arca, "rutaCertificado", certificado.toString());
+
+        puntoDeVenta(false);
+        Long clienteId = anonimo ? null : 9L;
+        if (clienteId != null) {
+            cliente(clienteId, inscripto).setCuit("20-12345678-6");
+        }
+        FacturaVenta factura = guardar(clienteId, anonimo ? consumidorFinal.getId() : inscripto.getId());
+        factura.getTipoMoneda().setCodigoAfip("PES");
+        when(facturas.findById(12L)).thenReturn(Optional.of(factura));
+        var credenciales = new CredencialesArca("token", "firma");
+        when(wsaa.obtenerCredenciales(clave, certificado)).thenReturn(credenciales);
+        long ultimoNumero = anonimo ? 0L : 7L;
+        when(wsfe.obtenerUltimoComprobante(credenciales, cuitEmisor, 1, 11)).thenReturn(ultimoNumero);
+        if (ultimoNumero > 0L) {
+            when(wsfe.consultarFechaComprobante(credenciales, cuitEmisor, 1, 11, ultimoNumero))
+                    .thenReturn(new java.sql.Date(factura.getFechaEmision().getTime()).toLocalDate());
+        }
+        when(wsfe.solicitarCae(eq(credenciales), eq(cuitEmisor), any(SolicitudFacturaC.class)))
+                .thenReturn(new ResultadoCae("A", "12345678901234", LocalDate.now(), List.of()));
+
+        new TP.SpringBootGrupal.controller.ArcaRestController(arca).autorizar(12L);
+
+        var solicitud = ArgumentCaptor.forClass(SolicitudFacturaC.class);
+        verify(wsfe).solicitarCae(eq(credenciales), eq(cuitEmisor), solicitud.capture());
+        assertEquals(tipo, solicitud.getValue().tipoDocumento());
+        assertEquals(documento, solicitud.getValue().numeroDocumento());
+        assertEquals(iva, solicitud.getValue().condicionIvaReceptorId());
+        assertEquals(ultimoNumero + 1, solicitud.getValue().numeroComprobante());
+        assertEquals(ultimoNumero + 1, factura.getNumero());
+        if (anonimo) {
+            verify(wsfe, never()).consultarFechaComprobante(any(), anyLong(), anyInt(), anyInt(), anyLong());
+        }
+        assertEquals("AUTORIZADA", factura.getEstado());
+    }
+
+    @ParameterizedTest
+    @CsvSource({",10000000", ",10000001", "20ABC123456786,1200"})
+    void arcaBloqueaCuitsInvalidosYConsumidoresAnonimosEnElLimite(String cuit, double importe) {
+        AfipWsaaClient wsaa = mock(AfipWsaaClient.class);
+        AfipWsfeClient wsfe = mock(AfipWsfeClient.class);
+        FacturacionArcaService arca = new FacturacionArcaService(wsaa, wsfe, facturas);
+        puntoDeVenta(false);
+        Long clienteId = null;
+        if (cuit != null) {
+            clienteId = 9L;
+            cliente(clienteId, monotributo).setCuit(cuit);
+        }
+        FacturaVenta factura = guardar(clienteId, monotributo.getId());
+        factura.getTipoMoneda().setCodigoAfip("PES");
+        factura.setImporteTotal(importe);
+
+        var error = assertThrows(IllegalStateException.class, () -> arca.autorizarFacturaC(factura));
+
+        assertTrue(error.getMessage().contains("CUIT"));
+        assertEquals("PENDIENTE", factura.getEstado());
+        verifyNoInteractions(wsaa, wsfe);
+    }
+
+    @Test
+    void arcaBloqueaLaFechaAnteriorAlUltimoComprobanteDelPuntoDeVenta(@TempDir Path archivos) throws Exception {
+        AfipWsaaClient wsaa = mock(AfipWsaaClient.class);
+        AfipWsfeClient wsfe = mock(AfipWsfeClient.class);
+        FacturacionArcaService arca = new FacturacionArcaService(wsaa, wsfe, facturas);
+        Path clave = Files.createFile(archivos.resolve("clave"));
+        Path certificado = Files.createFile(archivos.resolve("certificado"));
+        long cuitEmisor = 20216874561L;
+        ReflectionTestUtils.setField(arca, "cuit", cuitEmisor);
+        ReflectionTestUtils.setField(arca, "rutaClavePrivada", clave.toString());
+        ReflectionTestUtils.setField(arca, "rutaCertificado", certificado.toString());
+
+        puntoDeVenta(false);
+        cliente(9L, inscripto).setCuit("20123456786");
+        FacturaVenta factura = guardar(9L, inscripto.getId());
+        factura.getTipoMoneda().setCodigoAfip("PES");
+        LocalDate ultimaFecha = new java.sql.Date(factura.getFechaEmision().getTime()).toLocalDate().plusDays(3);
+        var credenciales = new CredencialesArca("token", "firma");
+        when(wsaa.obtenerCredenciales(clave, certificado)).thenReturn(credenciales);
+        when(wsfe.obtenerUltimoComprobante(credenciales, cuitEmisor, 1, 11)).thenReturn(9L);
+        when(wsfe.consultarFechaComprobante(credenciales, cuitEmisor, 1, 11, 9L)).thenReturn(ultimaFecha);
+
+        var error = assertThrows(IllegalStateException.class, () -> arca.autorizarFacturaC(factura));
+
+        assertTrue(error.getMessage().contains(ultimaFecha.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"))));
+        assertTrue(error.getMessage().contains("punto de venta 1"));
+        assertEquals("PENDIENTE", factura.getEstado());
+        verify(wsfe, never()).solicitarCae(any(), anyLong(), any());
+    }
+
+    @Test
+    void arcaBloqueaUnaFacturaConFechaAnteriorAHoyAntesDeContactarElServicio() {
+        AfipWsaaClient wsaa = mock(AfipWsaaClient.class);
+        AfipWsfeClient wsfe = mock(AfipWsfeClient.class);
+        FacturacionArcaService arca = new FacturacionArcaService(wsaa, wsfe, facturas);
+        puntoDeVenta(false);
+        cliente(9L, monotributo).setCuit("20123456786");
+        FacturaVenta factura = guardar(9L, monotributo.getId());
+        factura.getTipoMoneda().setCodigoAfip("PES");
+        factura.setFechaEmision(java.sql.Date.valueOf(LocalDate.now(java.time.ZoneId.of("America/Argentina/Buenos_Aires")).minusDays(1)));
+
+        var error = assertThrows(IllegalStateException.class, () -> arca.autorizarFacturaC(factura));
+
+        assertTrue(error.getMessage().contains("anterior a hoy"));
         verifyNoInteractions(wsaa, wsfe);
     }
 
@@ -209,7 +349,7 @@ class FacturaTiposTests {
     @Test
     void elClienteBuscadoTraeSuCategoriaDeIva() {
         Cliente emanuel = cliente(20L, monotributo);
-        emanuel.setCuitCuil("20334447775");
+        emanuel.setCuit("20334447775");
 
         var dto = catalogo().obtenerCliente(20L);
 
@@ -229,6 +369,14 @@ class FacturaTiposTests {
     }
 
     @Test
+    void lasOpcionesDeIvaExcluyenSujetoExento() {
+        var exento = condicion(14L, 4, "IVA Sujeto Exento");
+        when(condiciones.findAll()).thenReturn(List.of(inscripto, exento, consumidorFinal, monotributo));
+        assertEquals(List.of(11L, 10L, 12L),
+                catalogo().obtenerCondicionesIva().stream().map(opcion -> opcion.id()).toList());
+    }
+
+    @Test
     void losPuntosDeVentaDicenSiElEmisorEsInscripto() {
         PuntoVenta central = new PuntoVenta();
         central.setId(1L);
@@ -243,7 +391,7 @@ class FacturaTiposTests {
 
         var lista = catalogo().obtenerPuntosVenta();
 
-        assertEquals("1 - Sucursal Central (Monotributo)", lista.get(0).descripcion());
+        assertEquals("1 - Sucursal Central", lista.get(0).descripcion());
         assertFalse(lista.get(0).responsableInscripto());
         assertEquals("2 - Sucursal Responsable Inscripto (Resp. Inscripto)", lista.get(1).descripcion());
         assertTrue(lista.get(1).responsableInscripto());

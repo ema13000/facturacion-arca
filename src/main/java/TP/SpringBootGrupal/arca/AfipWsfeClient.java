@@ -1,7 +1,6 @@
 package TP.SpringBootGrupal.arca;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +16,7 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -36,12 +36,7 @@ public class AfipWsfeClient {
                 .replace("'", "&apos;");
     }
 
-    private String crearConsultaUltimoComprobante(
-            CredencialesArca credenciales,
-            long cuit,
-            int puntoVenta,
-            int tipoComprobante
-    ) {
+    private String crearConsulta(CredencialesArca credenciales, long cuit, String operacion, String parametros) {
         return """
             <?xml version="1.0" encoding="UTF-8"?>
             <soap:Envelope
@@ -49,23 +44,19 @@ public class AfipWsfeClient {
                 xmlns:fe="http://ar.gov.afip.dif.FEV1/">
                 <soap:Header/>
                 <soap:Body>
-                    <fe:FECompUltimoAutorizado>
+                    <fe:%s>
                         <fe:Auth>
                             <fe:Token>%s</fe:Token>
                             <fe:Sign>%s</fe:Sign>
                             <fe:Cuit>%d</fe:Cuit>
                         </fe:Auth>
-                        <fe:PtoVta>%d</fe:PtoVta>
-                        <fe:CbteTipo>%d</fe:CbteTipo>
-                    </fe:FECompUltimoAutorizado>
+                        %s
+                    </fe:%s>
                 </soap:Body>
             </soap:Envelope>
             """.formatted(
-                escaparXml(credenciales.token()),
-                escaparXml(credenciales.sign()),
-                cuit,
-                puntoVenta,
-                tipoComprobante
+                operacion, escaparXml(credenciales.token()), escaparXml(credenciales.sign()),
+                cuit, parametros, operacion
         );
     }
 
@@ -73,10 +64,6 @@ public class AfipWsfeClient {
             String mensajeSoap,
             String operacion
     ) throws Exception {
-
-        HttpClient cliente = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
 
         HttpRequest peticion = HttpRequest.newBuilder()
                 .uri(URI.create(URL_WSFE_HOMO))
@@ -92,7 +79,7 @@ public class AfipWsfeClient {
                 ))
                 .build();
 
-        HttpResponse<String> respuesta = cliente.send(
+        HttpResponse<String> respuesta = ConexionArca.HTTP.send(
                 peticion,
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
         );
@@ -109,14 +96,7 @@ public class AfipWsfeClient {
     private long extraerUltimoNumero(String respuestaSoap) throws Exception {
         Document documento = leerXml(respuestaSoap);
 
-        NodeList errores = documento.getElementsByTagNameNS("*", "Err");
-
-        if (errores.getLength() > 0) {
-            throw new IllegalStateException(
-                    "ARCA rechazó la consulta: "
-                            + errores.item(0).getTextContent().trim()
-            );
-        }
+        verificarErrores(documento, "ARCA rechazó la consulta");
 
         NodeList numeros = documento.getElementsByTagNameNS(
                 "*", "CbteNro"
@@ -148,19 +128,55 @@ public class AfipWsfeClient {
             int tipoComprobante
     ) throws Exception {
 
-        String solicitud = crearConsultaUltimoComprobante(
-                credenciales,
-                cuit,
-                puntoVenta,
-                tipoComprobante
-        );
-
-        String respuesta = enviarSoap(
-                solicitud,
-                "FECompUltimoAutorizado"
-        );
+        String operacion = "FECompUltimoAutorizado";
+        String parametros = """
+                <fe:PtoVta>%d</fe:PtoVta>
+                <fe:CbteTipo>%d</fe:CbteTipo>
+                """.formatted(puntoVenta, tipoComprobante);
+        String respuesta = enviarSoap(crearConsulta(credenciales, cuit, operacion, parametros), operacion);
 
         return extraerUltimoNumero(respuesta);
+    }
+
+    public LocalDate consultarFechaComprobante(CredencialesArca credenciales, long cuit,
+                                               int puntoVenta, int tipoComprobante, long numero) throws Exception {
+        String operacion = "FECompConsultar";
+        String parametros = """
+                <fe:FeCompConsReq>
+                    <fe:CbteTipo>%d</fe:CbteTipo>
+                    <fe:CbteNro>%d</fe:CbteNro>
+                    <fe:PtoVta>%d</fe:PtoVta>
+                </fe:FeCompConsReq>
+                """.formatted(tipoComprobante, numero, puntoVenta);
+        return extraerFechaComprobante(enviarSoap(crearConsulta(credenciales, cuit, operacion, parametros), operacion));
+    }
+
+    LocalDate extraerFechaComprobante(String respuesta) throws Exception {
+        Document documento = leerXml(respuesta);
+        verificarErrores(documento, "ARCA rechazó la consulta");
+        NodeList resultados = documento.getElementsByTagNameNS("*", "ResultGet");
+        if (resultados.getLength() != 1) {
+            throw new IllegalStateException("ARCA no devolvió los datos del último comprobante autorizado");
+        }
+        String fecha = texto((Element) resultados.item(0), "CbteFch");
+        try {
+            return LocalDate.parse(fecha, DateTimeFormatter.BASIC_ISO_DATE);
+        } catch (DateTimeParseException error) {
+            throw new IllegalStateException("ARCA no devolvió una fecha de emisión válida para el último comprobante", error);
+        }
+    }
+
+    private void verificarErrores(Document documento, String mensaje) {
+        NodeList errores = documento.getElementsByTagNameNS("*", "Err");
+        if (errores.getLength() > 0) {
+            Element error = (Element) errores.item(0);
+            throw new IllegalStateException(mensaje + ": " + texto(error, "Code") + ". " + texto(error, "Msg"));
+        }
+    }
+
+    private String texto(Element elemento, String etiqueta) {
+        NodeList nodos = elemento.getElementsByTagNameNS("*", etiqueta);
+        return nodos.getLength() == 0 ? "" : nodos.item(0).getTextContent().trim();
     }
 
     private String crearSolicitudCae(
@@ -254,14 +270,7 @@ public class AfipWsfeClient {
 
         Document documento = leerXml(respuestaSoap);
 
-        NodeList errores = documento.getElementsByTagNameNS("*", "Err");
-
-        if (errores.getLength() > 0) {
-            throw new IllegalStateException(
-                    "ARCA informó un error: "
-                            + errores.item(0).getTextContent().trim()
-            );
-        }
+        verificarErrores(documento, "ARCA informó un error");
 
         NodeList detalles = documento.getElementsByTagNameNS(
                 "*", "FECAEDetResponse"

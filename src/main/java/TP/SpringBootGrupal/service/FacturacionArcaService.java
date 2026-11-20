@@ -12,6 +12,7 @@ import TP.SpringBootGrupal.arca.SolicitudFacturaC;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 import TP.SpringBootGrupal.arca.AutorizacionFacturaC;
 import TP.SpringBootGrupal.arca.CredencialesArca;
@@ -22,6 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class FacturacionArcaService {
+
+    // RG 5700. A partir de este importe en pesos se debe identificar al consumidor final.
+    private static final double LIMITE_CONSUMIDOR_FINAL_SIN_IDENTIFICAR = 10_000_000;
+    private static final int CODIGO_FACTURA_C = 11;
+    private static final DateTimeFormatter FECHA_MENSAJE = DateTimeFormatter.ofPattern("dd/MM/uuuu");
 
     private final AfipWsaaClient wsaaClient;
     private final AfipWsfeClient wsfeClient;
@@ -133,6 +139,10 @@ public class FacturacionArcaService {
             );
         }
 
+        if (fechaEmision(factura).isBefore(LocalDate.now(FacturaServiceImpl.ZONA_ARGENTINA))) {
+            throw new IllegalStateException("La fecha de emisión es anterior a hoy. Editá la factura antes de enviarla a ARCA.");
+        }
+
         if (!Double.isFinite(factura.getImporteTotal())
                 || factura.getImporteTotal() <= 0) {
             throw new IllegalStateException(
@@ -156,23 +166,20 @@ public class FacturacionArcaService {
         }
     }
 
+    private LocalDate fechaEmision(FacturaVenta factura) {
+        return new java.sql.Date(factura.getFechaEmision().getTime()).toLocalDate();
+    }
+
     private SolicitudFacturaC prepararSolicitud(
             FacturaVenta factura,
             long numeroComprobante,
-            int tipoDocumento,
             long numeroDocumento
     ) {
-        validarFacturaParaArca(factura);
-
         if (numeroComprobante <= 0) {
             throw new IllegalArgumentException(
                     "El número de comprobante debe ser positivo"
             );
         }
-
-        LocalDate fecha = new java.sql.Date(
-                factura.getFechaEmision().getTime()
-        ).toLocalDate();
 
         BigDecimal total = BigDecimal.valueOf(
                 factura.getImporteTotal()
@@ -181,42 +188,42 @@ public class FacturacionArcaService {
         return new SolicitudFacturaC(
                 factura.getPuntoVenta().getNumero(),
                 numeroComprobante,
-                fecha,
-                tipoDocumento,
+                fechaEmision(factura),
                 numeroDocumento,
                 factura.getCondicionIva().getCodigoAfip(),
                 total
         );
     }
 
-    public AutorizacionFacturaC autorizarFacturaC(
-            FacturaVenta factura,
-            int tipoDocumento,
-            long numeroDocumento
-    ) throws Exception {
-
+    public AutorizacionFacturaC autorizarFacturaC(FacturaVenta factura) throws Exception {
         validarLetraAutorizable(factura);
-        validarConfiguracion();
         validarFacturaParaArca(factura);
+
+        long numeroDocumento = documentoReceptor(factura);
+        validarConfiguracion();
 
         CredencialesArca credenciales = wsaaClient.obtenerCredenciales(
                 Path.of(rutaClavePrivada),
                 Path.of(rutaCertificado)
         );
 
-        long ultimoNumero = wsfeClient.obtenerUltimoComprobante(
-                credenciales,
-                cuit,
-                factura.getPuntoVenta().getNumero(),
-                11
-        );
-
+        int puntoVenta = factura.getPuntoVenta().getNumero();
+        long ultimoNumero = wsfeClient.obtenerUltimoComprobante(credenciales, cuit, puntoVenta, CODIGO_FACTURA_C);
+        if (ultimoNumero > 0) {
+            LocalDate ultimaFecha = wsfeClient.consultarFechaComprobante(
+                    credenciales, cuit, puntoVenta, CODIGO_FACTURA_C, ultimoNumero);
+            if (fechaEmision(factura).isBefore(ultimaFecha)) {
+                throw new IllegalStateException(
+                        "La fecha de emisión es anterior a la última Factura C autorizada por ARCA "
+                                + "(n.º " + ultimoNumero + ", punto de venta " + puntoVenta + "). "
+                                + "La fecha mínima para este punto de venta es " + ultimaFecha.format(FECHA_MENSAJE) + ".");
+            }
+        }
         long siguienteNumero = Math.addExact(ultimoNumero, 1L);
 
         SolicitudFacturaC solicitud = prepararSolicitud(
                 factura,
                 siguienteNumero,
-                tipoDocumento,
                 numeroDocumento
         );
 
@@ -232,6 +239,19 @@ public class FacturacionArcaService {
         aplicarResultado(factura, autorizacion);
 
         return autorizacion;
+    }
+
+    private long documentoReceptor(FacturaVenta factura) {
+        if (factura.getCliente() != null) {
+            return factura.getCliente().numeroCuit();
+        }
+        if (factura.getCondicionIva().getCodigoAfip() != TipoComprobante.CONSUMIDOR_FINAL) {
+            throw new IllegalStateException("Seleccioná un cliente con CUIT para esta condición de IVA");
+        }
+        if (factura.getImporteTotal() >= LIMITE_CONSUMIDOR_FINAL_SIN_IDENTIFICAR) {
+            throw new IllegalStateException("Seleccioná un consumidor final con CUIT para facturas desde $10.000.000");
+        }
+        return 0;
     }
 
     private void aplicarResultado(
@@ -260,22 +280,14 @@ public class FacturacionArcaService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public AutorizacionFacturaC autorizarFacturaPorId(
-            Long facturaId,
-            int tipoDocumento,
-            long numeroDocumento
-    ) throws Exception {
+    public AutorizacionFacturaC autorizarFacturaPorId(Long facturaId) throws Exception {
 
         FacturaVenta factura = facturaRepository.findById(facturaId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "No existe la factura con ID " + facturaId
                 ));
 
-        AutorizacionFacturaC autorizacion = autorizarFacturaC(
-                factura,
-                tipoDocumento,
-                numeroDocumento
-        );
+        AutorizacionFacturaC autorizacion = autorizarFacturaC(factura);
 
         facturaRepository.save(factura);
 

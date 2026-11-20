@@ -21,4 +21,8 @@ public class TipoMoneda extends AuditoriaApp {
     private String denominacion;
     @Column (nullable = false)
     private String simbolo;
+
+    public boolean esDolarEstadounidense() {
+        return "DOL".equalsIgnoreCase(codigoAfip) || "USD".equalsIgnoreCase(codigoAfip);
+    }
 }

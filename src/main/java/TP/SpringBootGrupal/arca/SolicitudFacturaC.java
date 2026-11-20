@@ -7,9 +7,11 @@ public record SolicitudFacturaC(
         int puntoVenta,
         long numeroComprobante,
         LocalDate fechaEmision,
-        int tipoDocumento,
         long numeroDocumento,
         int condicionIvaReceptorId,
         BigDecimal importeTotal
 ) {
+    public int tipoDocumento() {
+        return numeroDocumento == 0 ? 99 : 80; // Sin identificar o CUIT
+    }
 }
