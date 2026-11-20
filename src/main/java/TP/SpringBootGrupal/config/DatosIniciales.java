@@ -18,7 +18,7 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * Carga clientes de prueba al arrancar, solo si la tabla de clientes está vacía.
+ * Carga al arrancar los clientes de prueba que todavía no existen (se buscan por CUIT/CUIL).
  * Así el buscador de clientes siempre tiene datos para probar.
  */
 @Component
@@ -32,7 +32,22 @@ public class DatosIniciales implements CommandLineRunner {
             new String[]{"27234567891", "Escuela Norte", "María", "González"},
             new String[]{"30712345674", "Distribuidora del Sur S.A.", "Carlos", "Rodríguez"},
             new String[]{"20345678905", "Kiosco La Esquina", "Lucas", "Fernández"},
-            new String[]{"33698765439", "Papelera Mendoza S.R.L.", "Ana", "Martínez"}
+            new String[]{"33698765439", "Papelera Mendoza S.R.L.", "Ana", "Martínez"},
+            new String[]{"20287654325", "Ferretería El Tornillo", "Diego", "López"},
+            new String[]{"27314567892", "Panadería Doña Rosa", "Rosa", "Sánchez"},
+            new String[]{"30709988774", "Constructora Andes S.A.", "Martín", "Gómez"},
+            new String[]{"20401112228", "Taller Mecánico Ruta 40", "Pablo", "Díaz"},
+            new String[]{"27253334458", "Estudio Contable Torres", "Laura", "Torres"},
+            new String[]{"30711223343", "Supermercado Cuyo S.R.L.", "Jorge", "Ramírez"},
+            new String[]{"20334445551", "Imprenta Rápida", "Federico", "Álvarez"},
+            new String[]{"27387651239", "Farmacia San José", "Valeria", "Romero"},
+            new String[]{"30695432107", "Bodega Los Olivos S.A.", "Ricardo", "Suárez"},
+            new String[]{"20412223331", "Gimnasio Activo", "Nicolás", "Benítez"},
+            new String[]{"27291118882", "Veterinaria Patitas", "Carolina", "Acosta"},
+            new String[]{"30715556665", "Transportes del Oeste S.R.L.", "Gustavo", "Medina"},
+            new String[]{"20367778882", "Verdulería La Huerta", "Sergio", "Herrera"},
+            new String[]{"27423331114", "Academia de Inglés Smart", "Florencia", "Castro"},
+            new String[]{"30704449999", "Electrónica Mendoza S.A.", "Andrés", "Molina"}
     );
 
     private final ClienteRepository clienteRepository;
@@ -55,8 +70,12 @@ public class DatosIniciales implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-        if (clienteRepository.count() > 0) {
-            completarNombresFaltantes();
+        completarNombresFaltantes();
+
+        List<String[]> faltantes = CLIENTES_PRUEBA.stream()
+                .filter(datos -> clienteRepository.findFirstByCuitCuil(datos[0]).isEmpty())
+                .toList();
+        if (faltantes.isEmpty()) {
             return;
         }
 
@@ -68,9 +87,9 @@ public class DatosIniciales implements CommandLineRunner {
 
         Usuario usuario = usuarios.get(0);
         Date ahora = new Date();
-        int indice = 1;
 
-        for (String[] datos : CLIENTES_PRUEBA) {
+        for (String[] datos : faltantes) {
+            int indice = CLIENTES_PRUEBA.indexOf(datos) + 1;
             Contacto contacto = new Contacto();
             contacto.setEmail("cliente" + indice + "@ejemplo.com");
             contacto.setCelular("261555000" + indice);
@@ -93,10 +112,9 @@ public class DatosIniciales implements CommandLineRunner {
             cliente.setUsuarioCarga(usuario);
             cliente.setUsuarioModificacion(usuario);
             clienteRepository.save(cliente);
-            indice++;
         }
 
-        log.info("Se cargaron {} clientes de prueba", CLIENTES_PRUEBA.size());
+        log.info("Se cargaron {} clientes de prueba", faltantes.size());
     }
 
     /** Los clientes de prueba cargados antes de existir nombre/apellido se completan una sola vez. */

@@ -70,6 +70,7 @@ const ICONOS: Record<string, string> = {
     anular: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
     imprimir: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
     quitar: '<path d="M18 6 6 18M6 6l12 12"/>',
+    pdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="m9 15 3 3 3-3"/>',
     enviar: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'
 };
 
@@ -319,7 +320,20 @@ function accionesSegunEstado(factura: FacturaReporteDTO): HTMLButtonElement[] {
                         throw error;
                     }
                 });
-            }, 'Imprimir factura con CAE')
+            }, 'Imprimir factura con CAE'),
+            botonIcono('Descargar PDF', 'pdf', 'icono-rojo', () => {
+                void ejecutar(async () => {
+                    const { archivo, nombre } = await api.descargarPdf(factura.id);
+                    const url = URL.createObjectURL(archivo);
+                    const enlace = document.createElement('a');
+                    enlace.href = url;
+                    enlace.download = nombre;
+                    document.body.appendChild(enlace);
+                    enlace.click();
+                    enlace.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                });
+            }, 'Descargar PDF con CAE y vencimiento')
         ];
     }
 
@@ -632,8 +646,6 @@ function mostrarAlta(): void {
     elemento<HTMLSelectElement>('inputListaPrecio').dataset.anterior = '';
     seleccionarCliente(null);
 
-    elemento<HTMLInputElement>('inputNumero').value = 'Automático';
-
     elemento('btnGuardarFactura').textContent =
         'Confirmar y Guardar Factura';
 
@@ -673,8 +685,6 @@ async function editarFactura(id: number): Promise<void> {
     mostrarAlta();
 
     facturaEnEdicionId = id;
-
-    elemento<HTMLInputElement>('inputNumero').value = String(factura.numeroFactura);
 
     seleccionarCliente(cliente);
     if (factura.clienteId !== null && !cliente) {

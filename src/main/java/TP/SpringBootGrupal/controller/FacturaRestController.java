@@ -4,8 +4,8 @@ import TP.SpringBootGrupal.Exceptions.RecursoNoEncontradoException;
 import TP.SpringBootGrupal.dtos.Factura.FacturaEstadoRequestDTO;
 import TP.SpringBootGrupal.dtos.Factura.FacturaReporteDTO;
 import TP.SpringBootGrupal.dtos.Factura.FacturaRequestDTO;
+import TP.SpringBootGrupal.service.FacturaPdfGenerador;
 import TP.SpringBootGrupal.service.FacturaServiceImpl;
-import com.lowagie.text.DocumentException;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -19,13 +19,15 @@ import TP.SpringBootGrupal.dtos.Factura.FacturaEdicionDTO;
 
 @RestController
 @RequestMapping("/api/facturas")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "*", exposedHeaders = HttpHeaders.CONTENT_DISPOSITION)
 public class FacturaRestController {
 
     private final FacturaServiceImpl service;
+    private final FacturaPdfGenerador pdfGenerador;
 
-    public FacturaRestController(FacturaServiceImpl facturaServiceImpl) {
+    public FacturaRestController(FacturaServiceImpl facturaServiceImpl, FacturaPdfGenerador pdfGenerador) {
         this.service = facturaServiceImpl;
+        this.pdfGenerador = pdfGenerador;
     }
 
     @GetMapping
@@ -68,6 +70,18 @@ public class FacturaRestController {
             @PathVariable("id") Long id
     ) {
         return ResponseEntity.ok(service.findParaImpresion(id));
+    }
+
+    /** PDF de una factura autorizada, con CAE y vencimiento. Una pendiente responde 409. */
+    @GetMapping("/{id}/pdf")
+    public ResponseEntity<byte[]> descargarPdf(@PathVariable("id") Long id) {
+        var factura = service.findParaImpresion(id);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + FacturaPdfGenerador.nombreArchivo(factura) + "\"")
+                .body(pdfGenerador.generar(factura));
     }
 
     @PostMapping

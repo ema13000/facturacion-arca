@@ -47,6 +47,7 @@ const ICONOS = {
     anular: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
     imprimir: '<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
     quitar: '<path d="M18 6 6 18M6 6l12 12"/>',
+    pdf: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v6"/><path d="m9 15 3 3 3-3"/>',
     enviar: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'
 };
 /** Botón de ícono: el texto queda oculto visualmente pero sirve para lectores de pantalla. */
@@ -252,7 +253,20 @@ function accionesSegunEstado(factura) {
                         throw error;
                     }
                 });
-            }, 'Imprimir factura con CAE')
+            }, 'Imprimir factura con CAE'),
+            botonIcono('Descargar PDF', 'pdf', 'icono-rojo', () => {
+                void ejecutar(async () => {
+                    const { archivo, nombre } = await api.descargarPdf(factura.id);
+                    const url = URL.createObjectURL(archivo);
+                    const enlace = document.createElement('a');
+                    enlace.href = url;
+                    enlace.download = nombre;
+                    document.body.appendChild(enlace);
+                    enlace.click();
+                    enlace.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                });
+            }, 'Descargar PDF con CAE y vencimiento')
         ];
     }
     return [];
@@ -498,7 +512,6 @@ function mostrarAlta() {
     elemento('formAltaFactura').reset();
     elemento('inputListaPrecio').dataset.anterior = '';
     seleccionarCliente(null);
-    elemento('inputNumero').value = 'Automático';
     elemento('btnGuardarFactura').textContent =
         'Confirmar y Guardar Factura';
     renglones = [];
@@ -529,7 +542,6 @@ async function editarFactura(id) {
     }
     mostrarAlta();
     facturaEnEdicionId = id;
-    elemento('inputNumero').value = String(factura.numeroFactura);
     seleccionarCliente(cliente);
     if (factura.clienteId !== null && !cliente) {
         elemento('inputCliente').value = String(factura.clienteId);

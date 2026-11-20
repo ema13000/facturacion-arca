@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -223,15 +224,16 @@ class ExplorerTests {
         assertEquals(List.of(new OpcionDTO(3L, "Mayorista")), catalogo().obtenerListasPrecio());
     }
 
-    @ParameterizedTest
-    @ValueSource(longs = {0, 4})
-    void cargaClientesDePruebaSoloSiNoHayNinguno(long existentes) {
-        Usuario usuario = new Usuario();
-        when(clientes.count()).thenReturn(existentes);
-        when(usuarios.findAll()).thenReturn(List.of(usuario));
+    @Test
+    void noDuplicaClientesDePruebaQueYaExisten() {
+        when(usuarios.findAll()).thenReturn(List.of(new Usuario()));
+        when(clientes.findFirstByCuitCuil(anyString())).thenAnswer(i -> {
+            Cliente existente = new Cliente();
+            existente.setNombre("Ya cargado");
+            return Optional.of(existente);
+        });
         new DatosIniciales(clientes, usuarios, contactos, domicilios).run();
-        verify(clientes, times(existentes == 0 ? DatosIniciales.CLIENTES_PRUEBA.size() : 0))
-                .save(any(Cliente.class));
+        verify(clientes, never()).save(any(Cliente.class));
     }
 
     @Test

@@ -120,6 +120,17 @@ export class FacturaService {
         return this.obtenerJson(`${this.baseUrl}/${id}/impresion`);
     }
 
+    /** PDF generado por el backend (solo facturas autorizadas, con CAE y vencimiento). */
+    async descargarPdf(id: number): Promise<{ archivo: Blob; nombre: string }> {
+        const response = await fetch(`${this.baseUrl}/${id}/pdf`);
+        await this.comprobarRespuesta(response);
+
+        const disposicion = response.headers.get('Content-Disposition') ?? '';
+        const nombre = /filename="([^"]+)"/.exec(disposicion)?.[1] ?? `factura-${id}.pdf`;
+
+        return { archivo: await response.blob(), nombre };
+    }
+
     async obtenerParaEdicion(id: number): Promise<FacturaEdicionDTO> {
         const response = await fetch(`${this.baseUrl}/${id}/edicion`);
 

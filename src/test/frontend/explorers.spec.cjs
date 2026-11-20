@@ -142,7 +142,8 @@ test('elige precios, calcula el total, envía el ID y conserva renglones al quit
     await page.locator('#tbodyRenglones tr').first().getByRole('button', { name: 'Quitar' }).click();
     await expect(page.locator('#tbodyRenglones tr')).toHaveCount(1);
     await expect(page.locator('#tbodyRenglones')).toContainText('Lápiz');
-    await expect(page.locator('#inputNumero')).toHaveAttribute('readonly', '');
+    await expect(page.locator('#inputNumero')).toHaveCount(0);
+    await expect(page.locator('#seccionAlta')).not.toContainText('Número de factura');
     for (const id of ['inputPuntoVenta', 'inputMoneda', 'inputCondicionIva']) await page.locator('#' + id).selectOption('1');
     page.on('dialog', dialog => dialog.accept());
     const request = page.waitForRequest(req => req.method() === 'POST' && req.url().includes('/api/facturas'));
@@ -236,7 +237,7 @@ test('las acciones dependen del estado de la factura', async ({ page }) => {
     await page.route('**/api/facturas', route => route.fulfill({ json: lista }));
     await page.locator('#btnAplicarFiltros').click();
     const [autorizada, pendiente, anulada] = [0, 1, 2].map(i => page.locator('#tbodyFacturas tr').nth(i));
-    await expect(autorizada.getByRole('button')).toHaveText(['Anular', 'Imprimir']);
+    await expect(autorizada.getByRole('button')).toHaveText(['Anular', 'Imprimir', 'Descargar PDF']);
     await expect(pendiente.getByRole('button')).toHaveText(['Editar', 'Eliminar', 'Autorizar en ARCA']);
     await expect(anulada.getByRole('button')).toHaveCount(0);
 });
@@ -246,7 +247,7 @@ test('las acciones son botones con ícono y descripción al pasar el mouse', asy
         { ...reporte, id: 2, estado: 'AUTORIZADA' }, { ...reporte, id: 1, estado: 'PENDIENTE' }
     ] }));
     await page.locator('#btnAplicarFiltros').click();
-    for (const nombre of ['Editar', 'Eliminar', 'Anular', 'Imprimir']) {
+    for (const nombre of ['Editar', 'Eliminar', 'Anular', 'Imprimir', 'Descargar PDF']) {
         const boton = page.getByRole('button', { name: nombre, exact: true });
         await expect(boton).toHaveAttribute('title', new RegExp(nombre));
         await expect(boton.locator('svg')).toHaveCount(1);
@@ -285,6 +286,35 @@ test('imprimir una autorizada muestra CAE y vencimiento', async ({ page }) => {
     await expect(ventana.locator('body')).toContainText('0002-00000015');
     await expect(ventana.locator('body')).toContainText('Cuaderno azul');
     await expect(ventana.locator('body')).toContainText('$250.00');
+});
+
+test('descargar PDF de una autorizada baja el archivo del backend', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA' }] }));
+    await page.route('**/api/facturas/1/pdf', route => route.fulfill({
+        status: 200, contentType: 'application/pdf', body: '%PDF-1.4 prueba',
+        headers: {
+            'Content-Disposition': 'attachment; filename="factura-C-0002-00000015.pdf"',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Expose-Headers': 'Content-Disposition'
+        }
+    }));
+    await page.locator('#btnAplicarFiltros').click();
+    const descarga = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Descargar PDF' }).click();
+    expect((await descarga).suggestedFilename()).toBe('factura-C-0002-00000015.pdf');
+});
+
+test('si el backend rechaza el PDF se muestra el motivo', async ({ page }) => {
+    await page.route('**/api/facturas', route => route.fulfill({ json: [{ ...reporte, estado: 'AUTORIZADA' }] }));
+    await page.route('**/api/facturas/1/pdf', route => route.fulfill({
+        status: 409, json: { mensaje: 'Solo se pueden imprimir facturas autorizadas en ARCA' }
+    }));
+    await page.locator('#btnAplicarFiltros').click();
+    const dialogo = page.waitForEvent('dialog');
+    await page.getByRole('button', { name: 'Descargar PDF' }).click();
+    const alerta = await dialogo;
+    expect(alerta.message()).toContain('Solo se pueden imprimir facturas autorizadas');
+    await alerta.accept();
 });
 
 test('después de guardar, la factura nueva queda resaltada arriba del listado', async ({ page }) => {
